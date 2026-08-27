@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://nagpalarpit.github.io/auto-company-www/sitemap.xml
