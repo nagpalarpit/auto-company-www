@@ -28,15 +28,54 @@
       </p>
       <div class="hero-cta">
         <a href="mailto:hyperstring.labs@gmail.com?subject=Flatline%20early%20access&body=Send%20me%20an%20API%20key%20when%20Flatline%20launches." class="btn btn-primary">Get notified at launch</a>
+        <a href="#demo" class="btn btn-ghost">Watch a check flip live ↓</a>
       </div>
       <p class="hero-note">Free tier planned: 25 checks, no credit card.</p>
+    </div>
+  </section>
 
-      <div class="heartbeat-wrap" aria-hidden="true">
-        <div class="heartbeat-label">Check status — looped demo</div>
-        <svg viewBox="0 0 600 140" preserveAspectRatio="none" role="img" aria-label="Steady heartbeat line">
-          <path class="heartbeat-beat" pathLength="1000"
-            d="M0,70 L180,70 L205,20 L230,120 L255,70 L600,70" />
-        </svg>
+  <section class="container section demo-section" id="demo">
+    <div class="demo-eyebrow">
+      <span class="demo-dot"></span>
+      Live preview — the exact rule the cron sweep runs every minute
+    </div>
+    <h2 class="demo-title">Break the cron. Watch it flip.</h2>
+    <div class="demo-grid">
+      <div class="demo-controls">
+        <div class="demo-row">
+          <label class="demo-field">
+            <span>Period (s)</span>
+            <input id="fl-period" type="number" min="2" max="60" value="8">
+          </label>
+          <label class="demo-field">
+            <span>Grace (s)</span>
+            <input id="fl-grace" type="number" min="0" max="30" value="4">
+          </label>
+        </div>
+        <button type="button" id="fl-ping" class="btn btn-primary" style="width:100%;font-size:12px;">curl flatline.dev/ping/demo</button>
+        <div class="demo-theme-toggle" role="group" aria-label="Auto-heartbeat">
+          <button type="button" class="theme-btn active" data-auto="on">Auto-heartbeat</button>
+          <button type="button" class="theme-btn" data-auto="off">Break the cron</button>
+        </div>
+        <p class="demo-note" style="text-align:left;margin:0;">
+          Auto-heartbeat pings on schedule, like a healthy job. Break the
+          cron stops it — the check goes overdue after period + grace.
+        </p>
+      </div>
+      <div class="demo-preview">
+        <div class="fl-monitor">
+          <div class="fl-monitor-top">
+            <span id="fl-status-badge" class="fl-status fl-status-up">● UP</span>
+            <span id="fl-readout" class="fl-readout">last ping 0s ago</span>
+          </div>
+          <div class="fl-timeline-track">
+            <div id="fl-timeline-fill" class="fl-timeline-fill"></div>
+            <div id="fl-marker-period" class="fl-marker"><span>period</span></div>
+            <div id="fl-marker-overdue" class="fl-marker fl-marker-danger"><span>overdue</span></div>
+          </div>
+          <div id="fl-log" class="fl-log" aria-live="polite"></div>
+        </div>
+        <p class="demo-note">This is the exact overdue rule the cron sweep evaluates against every check, every minute.</p>
       </div>
     </div>
   </section>
@@ -65,5 +104,121 @@
   <footer class="footer">
     flatline.dev — also building <a href="../snapog/">SnapOG</a>
   </footer>
+
+  <script>
+  (function () {
+    var els = {
+      period: document.getElementById('fl-period'),
+      grace: document.getElementById('fl-grace'),
+      ping: document.getElementById('fl-ping'),
+      badge: document.getElementById('fl-status-badge'),
+      readout: document.getElementById('fl-readout'),
+      fill: document.getElementById('fl-timeline-fill'),
+      markerPeriod: document.getElementById('fl-marker-period'),
+      markerOverdue: document.getElementById('fl-marker-overdue'),
+      log: document.getElementById('fl-log'),
+    };
+
+    var state = {
+      periodSec: clamp(els.period.value, 2, 60, 8),
+      graceSec: clamp(els.grace.value, 0, 30, 4),
+      lastPingAt: Date.now(),
+      status: 'up',
+      auto: true,
+      autoTimer: null,
+    };
+
+    function clamp(v, min, max, dflt) {
+      v = parseInt(v, 10);
+      if (isNaN(v)) return dflt;
+      return Math.min(max, Math.max(min, v));
+    }
+
+    // Mirrors buildWebhookPayload()'s message strings in
+    // projects/flatline/src/lib/webhook.ts, verbatim.
+    function logEvent(emoji, msg, cls) {
+      var entry = document.createElement('div');
+      entry.className = 'fl-log-entry ' + cls;
+      var time = new Date().toLocaleTimeString([], { hour12: false });
+      entry.innerHTML = '<span class="fl-log-time">' + time + '</span>' + emoji + ' ' + msg;
+      els.log.appendChild(entry);
+      while (els.log.children.length > 8) els.log.removeChild(els.log.firstChild);
+    }
+
+    function pingNow(isAuto) {
+      if (state.status === 'down') {
+        state.status = 'up';
+        logEvent('\u{1F7E2}', 'Check "demo-check" recovered — ping received again.', 'up');
+      }
+      state.lastPingAt = Date.now();
+      render();
+    }
+
+    function scheduleAuto() {
+      if (state.autoTimer) clearInterval(state.autoTimer);
+      state.autoTimer = state.auto ? setInterval(function () { pingNow(true); }, state.periodSec * 1000) : null;
+    }
+
+    function tick() {
+      var now = Date.now();
+      var elapsed = (now - state.lastPingAt) / 1000;
+      var threshold = state.periodSec + state.graceSec;
+      if (state.status === 'up' && elapsed > threshold) {
+        state.status = 'down';
+        logEvent(
+          '\u{1F534}',
+          'Check "demo-check" went DOWN — no ping received within ' + threshold +
+            's (period ' + state.periodSec + 's + grace ' + state.graceSec + 's).',
+          'down'
+        );
+      }
+      render();
+    }
+
+    function render() {
+      var now = Date.now();
+      var elapsed = (now - state.lastPingAt) / 1000;
+      var threshold = state.periodSec + state.graceSec;
+      var maxRange = threshold * 1.4;
+
+      var isDown = state.status === 'down';
+      els.badge.textContent = isDown ? '● DOWN' : '● UP';
+      els.badge.className = 'fl-status ' + (isDown ? 'fl-status-down' : 'fl-status-up');
+      els.readout.textContent = isDown
+        ? 'down for ' + Math.floor(elapsed - threshold) + 's'
+        : 'last ping ' + Math.floor(elapsed) + 's ago';
+
+      els.fill.style.width = Math.min(100, (elapsed / maxRange) * 100) + '%';
+      els.fill.className = 'fl-timeline-fill' + (isDown ? ' down' : '');
+      els.markerPeriod.style.left = Math.min(100, (state.periodSec / maxRange) * 100) + '%';
+      els.markerOverdue.style.left = Math.min(100, (threshold / maxRange) * 100) + '%';
+    }
+
+    els.period.addEventListener('input', function () {
+      state.periodSec = clamp(els.period.value, 2, 60, state.periodSec);
+      scheduleAuto();
+      render();
+    });
+    els.grace.addEventListener('input', function () {
+      state.graceSec = clamp(els.grace.value, 0, 30, state.graceSec);
+      render();
+    });
+    els.ping.addEventListener('click', function () { pingNow(false); });
+    document.querySelectorAll('.demo-theme-toggle .theme-btn').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        state.auto = btn.dataset.auto === 'on';
+        document.querySelectorAll('.demo-theme-toggle .theme-btn').forEach(function (b) {
+          b.classList.toggle('active', b === btn);
+        });
+        if (state.auto) pingNow(true);
+        scheduleAuto();
+      });
+    });
+
+    scheduleAuto();
+    render();
+    setInterval(tick, 150);
+  })();
+  </script>
 </body>
 </html>
