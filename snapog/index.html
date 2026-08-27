@@ -4,8 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>SnapOG — Open Graph images at the edge (coming soon)</title>
-<meta name="description" content="SnapOG turns a title into a shareable Open Graph image, one API call, cached at the edge. Launching soon.">
+<meta name="description" content="SnapOG turns a title into a shareable Open Graph image, one API call, cached at the edge. Try the live preview. Launching soon.">
 <link rel="stylesheet" href="../style.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans:ital,wght@0,400;0,700;0,800;1,400&family=Noto+Serif:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
 </head>
 <body>
   <nav class="nav">
@@ -26,16 +28,63 @@
       </p>
       <div class="hero-cta">
         <a href="mailto:hyperstring.labs@gmail.com?subject=SnapOG%20early%20access&body=Send%20me%20an%20API%20key%20when%20SnapOG%20launches." class="btn btn-primary">Get notified at launch</a>
+        <a href="#demo" class="btn btn-ghost">Try the live preview ↓</a>
       </div>
       <p class="hero-note">Free tier planned: 100 images/month, no credit card.</p>
+    </div>
+  </section>
 
-      <div class="og-card-mock" aria-hidden="true">
-        <div class="bar"><span></span><span></span><span></span></div>
-        <div class="art">
-          <div class="eyebrow2">myblog.dev</div>
-          <h3>How to Build a Billion-Dollar API</h3>
-          <div class="domain">1200 × 630 — generated in one request</div>
+  <section class="container section demo-section" id="demo">
+    <div class="demo-eyebrow">
+      <span class="demo-dot"></span>
+      Live preview — the exact rendering logic the API will ship
+    </div>
+    <h2 class="demo-title">Type it. See it. That's the product.</h2>
+    <div class="demo-grid">
+      <div class="demo-controls">
+        <label class="demo-field">
+          <span>Title</span>
+          <input id="og-title" type="text" maxlength="120" value="How to Build a Billion-Dollar API">
+        </label>
+        <label class="demo-field">
+          <span>Description</span>
+          <textarea id="og-desc" maxlength="200" rows="2">A practical guide to designing APIs developers actually want to use.</textarea>
+        </label>
+        <div class="demo-row">
+          <label class="demo-field">
+            <span>Domain</span>
+            <input id="og-domain" type="text" maxlength="30" value="myblog.dev">
+          </label>
+          <label class="demo-field">
+            <span>Tag</span>
+            <input id="og-tag" type="text" maxlength="20" value="Engineering">
+          </label>
         </div>
+        <div class="demo-row">
+          <label class="demo-field">
+            <span>Author</span>
+            <input id="og-author" type="text" maxlength="30" value="Alex Rivera">
+          </label>
+          <label class="demo-field">
+            <span>Template</span>
+            <select id="og-template">
+              <option value="default">Default</option>
+              <option value="blog">Blog</option>
+              <option value="article">Article</option>
+            </select>
+          </label>
+        </div>
+        <div class="demo-theme-toggle" role="group" aria-label="Theme">
+          <button type="button" class="theme-btn active" data-theme="dark">Dark</button>
+          <button type="button" class="theme-btn" data-theme="light">Light</button>
+        </div>
+      </div>
+      <div class="demo-preview">
+        <div class="og-card-mock">
+          <div class="bar"><span></span><span></span><span></span></div>
+          <canvas id="og-canvas" width="1200" height="630" aria-label="Live Open Graph image preview"></canvas>
+        </div>
+        <p class="demo-note">1200 × 630 — this is what <code style="font-family:var(--font-mono);color:var(--teal);">GET /og</code> will return, byte for byte.</p>
       </div>
     </div>
   </section>
@@ -64,5 +113,237 @@
   <footer class="footer">
     snapog.dev — also building <a href="../flatline/">Flatline</a>
   </footer>
+
+  <script>
+  (function () {
+    var els = {
+      title: document.getElementById('og-title'),
+      desc: document.getElementById('og-desc'),
+      domain: document.getElementById('og-domain'),
+      tag: document.getElementById('og-tag'),
+      author: document.getElementById('og-author'),
+      template: document.getElementById('og-template'),
+    };
+    var canvas = document.getElementById('og-canvas');
+    var ctx = canvas.getContext('2d');
+    var theme = 'dark';
+
+    var THEMES = {
+      default: {
+        dark:  { bg: '#0A0A0A', primary: '#F5F5F5', secondary: '#737373', surface: '#1A1A1A' },
+        light: { bg: '#FAFAFA', primary: '#0A0A0A', secondary: '#737373', surface: '#E8E8E8' },
+      },
+      blog: {
+        dark:  { bg: '#0D0D0D', primary: '#FAFAFA', secondary: '#6B7280', surface: '#1F1F1F' },
+        light: { bg: '#FFFFFF', primary: '#111111', secondary: '#6B7280', surface: '#F3F4F6' },
+      },
+      article: {
+        dark:  { bg: '#111111', primary: '#FFFFFF', secondary: '#9CA3AF', divider: '#2A2A2A' },
+        light: { bg: '#F8F8F8', primary: '#111111', secondary: '#4B5563', divider: '#D1D5DB' },
+      },
+    };
+    var ACCENT = '#F59E0B';
+    var SANS = '"Noto Sans", "DM Sans", sans-serif';
+    var SERIF = '"Noto Serif", Georgia, serif';
+    var MONO = '"JetBrains Mono", monospace';
+
+    function fillRoundRect(x, y, w, h, r) {
+      ctx.beginPath();
+      if (ctx.roundRect) {
+        ctx.roundRect(x, y, w, h, r);
+      } else {
+        ctx.rect(x, y, w, h);
+      }
+      ctx.fill();
+    }
+
+    function wrapText(text, font, maxWidth, maxLines) {
+      ctx.font = font;
+      var words = String(text || '').trim().split(/\s+/).filter(Boolean);
+      if (!words.length) return [];
+      var lines = [];
+      var line = '';
+      for (var i = 0; i < words.length; i++) {
+        var word = words[i];
+        var test = line ? line + ' ' + word : word;
+        if (ctx.measureText(test).width <= maxWidth || !line) {
+          line = test;
+        } else {
+          lines.push(line);
+          line = word;
+          if (lines.length === maxLines) { line = ''; break; }
+        }
+      }
+      if (line) {
+        if (lines.length < maxLines) {
+          lines.push(line);
+        } else {
+          var last = lines[maxLines - 1] + ' ' + line;
+          while (ctx.measureText(last + '…').width > maxWidth && last.length > 1) {
+            last = last.slice(0, -1);
+          }
+          lines[maxLines - 1] = last.trim() + '…';
+        }
+      }
+      return lines;
+    }
+
+    function pill(rightEdge, y, text, font, textColor, bgColor) {
+      ctx.font = font;
+      var padX = 16, h = 32;
+      var w = ctx.measureText(text).width + padX * 2;
+      var x = rightEdge - w;
+      ctx.fillStyle = bgColor;
+      fillRoundRect(x, y, w, h, h / 2);
+      ctx.fillStyle = textColor;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(text, x + padX, y + h / 2 + 1);
+    }
+
+    function draw() {
+      var tpl = els.template.value;
+      var c = THEMES[tpl][theme];
+      var title = els.title.value || 'Your title goes here';
+      var desc = els.desc.value;
+      var domain = els.domain.value;
+      var tag = els.tag.value;
+      var author = els.author.value;
+
+      ctx.textBaseline = 'alphabetic';
+      ctx.clearRect(0, 0, 1200, 630);
+      ctx.fillStyle = c.bg;
+      ctx.fillRect(0, 0, 1200, 630);
+
+      if (tpl === 'blog') {
+        ctx.fillStyle = ACCENT;
+        ctx.fillRect(0, 0, 1200, 4);
+      } else if (tpl === 'default') {
+        ctx.fillStyle = ACCENT;
+        ctx.fillRect(0, 0, 6, 630);
+      }
+
+      var padLeft = tpl === 'default' ? 84 : tpl === 'blog' ? 80 : 72;
+      var padRight = tpl === 'blog' ? 80 : 72;
+      var padY = tpl === 'article' ? 60 : tpl === 'blog' ? 72 : 64;
+      var y = padY;
+
+      if (tpl === 'article') {
+        var x = padLeft;
+        ctx.textAlign = 'left';
+        if (tag) {
+          ctx.font = '700 12px ' + MONO;
+          ctx.fillStyle = ACCENT;
+          var tagText = tag.toUpperCase();
+          ctx.fillText(tagText, x, y + 12);
+          x += ctx.measureText(tagText).width + 12;
+        }
+        if (domain) {
+          ctx.font = '12px ' + MONO;
+          ctx.fillStyle = c.secondary;
+          ctx.fillText('• ' + domain.toUpperCase(), x, y + 12);
+        }
+        y += 32;
+        ctx.fillStyle = ACCENT;
+        ctx.fillRect(padLeft, y, 48, 3);
+        y += 32 + 40;
+      } else {
+        ctx.textAlign = 'left';
+        if (domain) {
+          ctx.font = '18px ' + MONO;
+          ctx.fillStyle = ACCENT;
+          ctx.fillText(domain.toUpperCase(), padLeft, y + 18);
+        }
+        if (tag) {
+          pill(1200 - padRight, y - 2, tag, '13px ' + MONO, c.primary, c.surface);
+        }
+        y += 18 + 48 + 12;
+      }
+
+      var fontFamily = tpl === 'blog' ? SERIF : SANS;
+      var weight = tpl === 'article' ? 800 : 700;
+      var len = title.length;
+      var size = tpl === 'article'
+        ? (len > 60 ? 40 : len > 40 ? 50 : 60)
+        : tpl === 'blog'
+        ? (len > 55 ? 44 : len > 35 ? 54 : 64)
+        : (len > 60 ? 42 : len > 40 ? 52 : 62);
+      var maxWidth = 1200 - padLeft - padRight;
+      var titleFont = weight + ' ' + size + 'px ' + fontFamily;
+      var lines = wrapText(title, titleFont, maxWidth, 3);
+      ctx.font = titleFont;
+      ctx.fillStyle = c.primary;
+      ctx.textAlign = 'left';
+      var lineHeight = size * 1.2;
+      var titleY = y + size * 0.85;
+      lines.forEach(function (line, i) {
+        ctx.fillText(line, padLeft, titleY + i * lineHeight);
+      });
+      var afterTitleY = titleY + (lines.length - 1) * lineHeight + lineHeight * 0.35;
+
+      if (desc) {
+        var descSize = tpl === 'article' ? 20 : tpl === 'blog' ? 21 : 22;
+        var descFont = (tpl === 'blog' ? 'italic ' : '') + descSize + 'px ' + (tpl === 'blog' ? SERIF : SANS);
+        var descMax = tpl === 'default' ? 900 : maxWidth;
+        var descLines = wrapText(desc, descFont, descMax, 2);
+        ctx.font = descFont;
+        ctx.fillStyle = c.secondary;
+        var descLH = descSize * 1.5;
+        var dy = afterTitleY + 28;
+        descLines.forEach(function (line, i) {
+          ctx.fillText(line, padLeft, dy + i * descLH);
+        });
+      }
+
+      if (tpl === 'article') {
+        ctx.strokeStyle = c.divider;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(padLeft, 570);
+        ctx.lineTo(1200 - padRight, 570);
+        ctx.stroke();
+        ctx.textAlign = 'left';
+        ctx.font = '16px ' + MONO;
+        ctx.fillStyle = c.secondary;
+        if (author) ctx.fillText(author, padLeft, 600);
+        ctx.font = '13px ' + MONO;
+        ctx.globalAlpha = 0.5;
+        ctx.textAlign = 'right';
+        ctx.fillText('snapog.dev', 1200 - padRight, 600);
+        ctx.globalAlpha = 1;
+      } else {
+        var footerY = 630 - padY - 6;
+        ctx.font = '18px ' + MONO;
+        ctx.fillStyle = c.secondary;
+        ctx.textAlign = 'left';
+        if (author) ctx.fillText('— ' + author, padLeft, footerY);
+        ctx.font = '14px ' + MONO;
+        ctx.globalAlpha = 0.55;
+        ctx.textAlign = 'right';
+        ctx.fillText('snapog.dev', 1200 - padRight, footerY);
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    Object.keys(els).forEach(function (key) {
+      els[key].addEventListener('input', draw);
+      els[key].addEventListener('change', draw);
+    });
+    document.querySelectorAll('.theme-btn').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        theme = btn.dataset.theme;
+        document.querySelectorAll('.theme-btn').forEach(function (b) {
+          b.classList.toggle('active', b === btn);
+        });
+        draw();
+      });
+    });
+
+    if (document.fonts && document.fonts.ready) {
+      document.fonts.ready.then(draw);
+    }
+    draw();
+  })();
+  </script>
 </body>
 </html>
