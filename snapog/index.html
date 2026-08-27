@@ -104,8 +104,8 @@
           </label>
         </div>
         <div class="demo-theme-toggle" role="group" aria-label="Theme">
-          <button type="button" class="theme-btn active" data-theme="dark">Dark</button>
-          <button type="button" class="theme-btn" data-theme="light">Light</button>
+          <button type="button" class="theme-btn active" data-theme="dark" aria-pressed="true">Dark</button>
+          <button type="button" class="theme-btn" data-theme="light" aria-pressed="false">Light</button>
         </div>
       </div>
       <div class="demo-preview">
@@ -377,7 +377,9 @@
       btn.addEventListener('click', function () {
         theme = btn.dataset.theme;
         document.querySelectorAll('.theme-btn').forEach(function (b) {
-          b.classList.toggle('active', b === btn);
+          var isActive = b === btn;
+          b.classList.toggle('active', isActive);
+          b.setAttribute('aria-pressed', String(isActive));
         });
         draw();
       });

@@ -83,8 +83,8 @@
         </div>
         <button type="button" id="fl-ping" class="btn btn-primary" style="width:100%;font-size:12px;">curl flatline.dev/ping/demo</button>
         <div class="demo-theme-toggle" role="group" aria-label="Auto-heartbeat">
-          <button type="button" class="theme-btn active" data-auto="on">Auto-heartbeat</button>
-          <button type="button" class="theme-btn" data-auto="off">Break the cron</button>
+          <button type="button" class="theme-btn active" data-auto="on" aria-pressed="true">Auto-heartbeat</button>
+          <button type="button" class="theme-btn" data-auto="off" aria-pressed="false">Break the cron</button>
         </div>
         <p class="demo-note" style="text-align:left;margin:0;">
           Auto-heartbeat pings on schedule, like a healthy job. Break the
@@ -252,7 +252,9 @@
       btn.addEventListener('click', function () {
         state.auto = btn.dataset.auto === 'on';
         document.querySelectorAll('.demo-theme-toggle .theme-btn').forEach(function (b) {
-          b.classList.toggle('active', b === btn);
+          var isActive = b === btn;
+          b.classList.toggle('active', isActive);
+          b.setAttribute('aria-pressed', String(isActive));
         });
         if (state.auto) pingNow(true);
         scheduleAuto();
