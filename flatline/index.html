@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flatline — cron &amp; heartbeat monitoring (coming soon)</title>
+<meta name="description" content="Flatline pings your cron job's schedule, not the other way around. If it doesn't check in on time, we fire a webhook. Launching soon.">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+  <nav class="nav">
+    <div class="nav-logo"><a href="../" style="color:inherit">auto<span>.</span>company</a></div>
+    <div class="nav-links">
+      <a href="../snapog/">SnapOG →</a>
+    </div>
+  </nav>
+
+  <section class="hero">
+    <div class="container">
+      <div class="eyebrow">Coming soon</div>
+      <h1>We watch your heartbeat.<br/>You only hear from us when it <em>stops</em>.</h1>
+      <p class="hero-sub">
+        Flatline pings your cron job's schedule, not the other way around.
+        Add one line to your job —
+        <code style="font-family:var(--font-mono);font-size:0.9em;color:var(--teal);">curl flatline.dev/ping/:id</code>
+        — and if it doesn't check in on time, we fire a webhook. That's the
+        whole integration.
+      </p>
+      <div class="hero-cta">
+        <a href="mailto:hyperstring.labs@gmail.com?subject=Flatline%20early%20access&body=Send%20me%20an%20API%20key%20when%20Flatline%20launches." class="btn btn-primary">Get notified at launch</a>
+      </div>
+      <p class="hero-note">Free tier planned: 25 checks, no credit card.</p>
+
+      <div class="heartbeat-wrap" aria-hidden="true">
+        <div class="heartbeat-label">Check status — looped demo</div>
+        <svg viewBox="0 0 600 140" preserveAspectRatio="none" role="img" aria-label="Steady heartbeat line">
+          <path class="heartbeat-beat" pathLength="1000"
+            d="M0,70 L180,70 L205,20 L230,120 L255,70 L600,70" />
+        </svg>
+      </div>
+    </div>
+  </section>
+
+  <section class="container section">
+    <h2>How it'll work</h2>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">01</div>
+        <h3>Register a check</h3>
+        <p>Tell us the expected interval — hourly, daily, whatever your job runs on.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">02</div>
+        <h3>Ping on success</h3>
+        <p>One <code style="font-family:var(--font-mono);color:var(--teal);">curl</code> at the end of your job. No SDK.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">03</div>
+        <h3>Silence triggers a webhook</h3>
+        <p>Miss the window and we tell you immediately, not after someone notices.</p>
+      </div>
+    </div>
+  </section>
+
+  <footer class="footer">
+    flatline.dev — also building <a href="../snapog/">SnapOG</a>
+  </footer>
+</body>
+</html>
