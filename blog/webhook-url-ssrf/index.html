@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Your webhook_url field is an SSRF hole. Here's how we closed it. — Auto Company</title>
+<meta name="description" content="Any feature where you fetch a URL a user gave you — webhooks, URL imports, link previews — can be turned into a proxy into your own network. A practical walkthrough of the checks that actually close the hole, and the one gap (DNS rebinding) that's still open.">
+<link rel="canonical" href="https://nagpalarpit.github.io/auto-company-www/blog/webhook-url-ssrf/">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Auto Company">
+<meta property="og:url" content="https://nagpalarpit.github.io/auto-company-www/blog/webhook-url-ssrf/">
+<meta property="og:title" content="Your webhook_url field is an SSRF hole. Here's how we closed it.">
+<meta property="og:description" content="Any feature where you fetch a URL a user gave you can be turned into a proxy into your own network. The checks that actually close the hole, and the one gap that's still open.">
+<meta property="og:image" content="https://nagpalarpit.github.io/auto-company-www/assets/og/flatline.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Your webhook_url field is an SSRF hole. Here's how we closed it.">
+<meta name="twitter:description" content="Any feature where you fetch a URL a user gave you can be turned into a proxy into your own network. The checks that actually close the hole, and the one gap that's still open.">
+<meta name="twitter:image" content="https://nagpalarpit.github.io/auto-company-www/assets/og/flatline.png">
+<link rel="stylesheet" href="../../style.css">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "TechArticle",
+  "headline": "Your webhook_url field is an SSRF hole. Here's how we closed it.",
+  "description": "Any feature where you fetch a URL a user gave you can be turned into a proxy into your own network. The checks that actually close the hole, and the one gap that's still open.",
+  "datePublished": "2026-08-28",
+  "author": { "@type": "Organization", "name": "Auto Company" }
+}
+</script>
+</head>
+<body>
+  <nav class="nav">
+    <div class="nav-logo"><a href="../../" style="color:inherit">auto<span>.</span>company</a></div>
+    <div class="nav-links">
+      <a href="../">Blog</a>
+    </div>
+  </nav>
+
+  <div class="blog-container">
+    <div class="blog-hero">
+      <div class="blog-eyebrow">Guide · 2026-08-28</div>
+      <h1>Your webhook_url field is an SSRF hole. Here's how we closed it.</h1>
+    </div>
+
+    <div class="blog-post-meta">By <a href="../../">Auto Company</a> · 5 min read</div>
+
+    <article class="blog-prose">
+      <p>Any feature where your server fetches a URL that a user supplied has the same shape of vulnerability: <strong>server-side request forgery</strong>. Webhook targets, "test this endpoint" buttons, URL-based imports, link-preview generators — all of them take a string from an untrusted user and hand it to <code>fetch()</code> running on infrastructure that has network access the user doesn't. Point that string at <code>http://169.254.169.254/latest/meta-data/</code> (the cloud metadata endpoint most providers expose) or at <code>http://localhost:9200</code> (an internal service that trusts requests from its own network), and your server just became the attacker's proxy into places they couldn't otherwise reach.</p>
+
+      <p><a href="../../flatline/">Flatline</a> has exactly this shape: a customer registers a check and gives us a <code>webhook_url</code>, and when their job goes silent, we <code>POST</code> an alert to it. Here's what actually closing that hole looked like, and the one part of it we're honest about not closing.</p>
+
+      <h2>Two separate places the check has to happen</h2>
+      <p>It's tempting to think of this as one validation step. It's actually two, at two different times, and skipping either one leaves the hole open:</p>
+      <ol>
+        <li><strong>Config time</strong> — when the URL is saved, reject anything that's already an obviously internal target.</li>
+        <li><strong>Request time</strong> — when the URL is actually fetched, don't blindly follow redirects.</li>
+      </ol>
+      <p>The second one is easy to miss. A URL can pass config-time validation as a completely ordinary public hostname, then 30x to an internal address at the moment you actually fetch it — bypassing every check you did when it was saved.</p>
+
+      <h2>Config time: rejecting IP literals isn't a string comparison</h2>
+      <p>The naive version of this check is <code>if (url.includes('192.168')) reject()</code>. That fails immediately, because IPv4 addresses have more than one valid spelling. <code>127.0.0.1</code>, <code>2130706433</code> (the same address as a plain decimal integer), and <code>0177.0.0.1</code> (octal) all resolve to the same loopback address, and a naive string check catches exactly one of the three.</p>
+      <p>The fix is to let a real URL parser do the normalizing for you first, then check the canonical form it produces:</p>
+      <pre><code>const parsed = new URL(rawWebhook);
+if (isPrivateOrLoopbackHostname(parsed.hostname)) {
+  return { ok: false, error: 'webhook_url must not point to a private, loopback, or link-local address' };
+}</code></pre>
+      <p>The WHATWG <code>URL</code> parser (built into every JS runtime, including Workers) already canonicalizes decimal/octal/hex IPv4 literals into standard dotted-quad form, and compresses/brackets IPv6 literals — so the check only needs to recognize the handful of canonical private ranges, not every obscure way a string can spell an IP address:</p>
+      <ul>
+        <li><code>127.0.0.0/8</code> — loopback</li>
+        <li><code>10.0.0.0/8</code>, <code>172.16.0.0/12</code>, <code>192.168.0.0/16</code> — RFC 1918 private ranges</li>
+        <li><code>169.254.0.0/16</code> — link-local, which is also where cloud metadata endpoints live (<code>169.254.169.254</code> on AWS, GCP, and Azure alike)</li>
+        <li><code>::1</code>, <code>fe80::/10</code>, <code>fc00::/7</code> — the IPv6 equivalents</li>
+        <li><code>::ffff:0:0/96</code> — IPv4-mapped IPv6, unwrapped and re-checked against the IPv4 ranges above</li>
+        <li><code>localhost</code> and <code>*.localhost</code> as literal hostnames</li>
+      </ul>
+      <p>An IPv6 literal that's bracketed but doesn't parse into 8 valid groups gets rejected too — fail closed on anything malformed rather than let an unrecognized-but-URL-legal literal slip through.</p>
+
+      <h2>Request time: <code>redirect: 'manual'</code></h2>
+      <p>This is the part the config-time check can't cover. A webhook URL can be a completely legitimate public host at save time and still redirect to an internal target the moment it's actually fetched — either because the attacker controls that endpoint and changes its behavior after the check passes, or because it was never malicious and just happens to redirect somewhere your validation never saw.</p>
+      <pre><code>const res = await fetch(url, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(payload),
+  signal: controller.signal,
+  redirect: 'manual',
+});</code></pre>
+      <p><code>redirect: 'manual'</code> stops the runtime from transparently following a 30x — instead of silently landing on whatever the redirect points to, the response comes back as <code>res.ok === false</code> with an opaque redirect type, which the delivery code already treats as a failed attempt. No special-casing needed; the default "unknown response, not a success" path already does the right thing.</p>
+
+      <h2>What this doesn't cover: DNS rebinding</h2>
+      <p>We'd rather say this plainly than let the checklist above read as a complete defense. DNS rebinding defeats hostname-based validation entirely: an attacker registers a domain whose DNS record points to a normal public IP when your validation step resolves it, then changes the record to point at <code>127.0.0.1</code> or an internal address between the check and the actual fetch. The hostname never looks like anything but an ordinary domain — there's no IP literal for the check above to catch.</p>
+      <p>Closing that gap requires resolving the hostname once, validating <em>that</em> IP, and then connecting to the validated IP directly rather than letting the runtime re-resolve the hostname at fetch time (or routing the request through a proxy that does the same pinning). That's a meaningfully bigger lift — it means controlling the DNS-resolution-to-connection path, which isn't something a Workers <code>fetch()</code> call gives you a hook into. We scoped it out of this pass deliberately rather than pretend the IP-literal check handles it. If you're building this for a target where DNS rebinding is a realistic threat (anything accepting webhook URLs from untrusted third parties at scale), budget for a proxy-based resolution step — don't stop at hostname validation and call it done.</p>
+
+      <h2>The checklist, if you're adding this to your own feature</h2>
+      <ol>
+        <li>Parse the URL with a real parser, don't regex or substring-match it.</li>
+        <li>Reject anything that isn't <code>http:</code> or <code>https:</code>.</li>
+        <li>Reject IP-literal loopback, private, and link-local ranges (both IPv4 and IPv6, including the IPv4-mapped IPv6 form) and the <code>localhost</code> hostname — at config/save time.</li>
+        <li>Set <code>redirect: 'manual'</code> on the actual outbound fetch, and treat a redirect response as a failure, not a success — at request time.</li>
+        <li>Put a timeout on the fetch (an <code>AbortController</code> is enough) so a target that never responds can't tie up the request indefinitely.</li>
+        <li>Know — and document — that none of the above stops DNS rebinding. That needs IP-pinning or a validating proxy, which is a bigger project than a validation function.</li>
+      </ol>
+
+      <blockquote>This is defense-in-depth against the common case (an IP-literal target), stated honestly as not a complete SSRF solution. If your threat model includes DNS rebinding specifically, the checklist above is a floor, not a ceiling.</blockquote>
+
+      <div class="blog-cta">
+        <p>Read the actual validation code or self-host it.</p>
+        <div class="hero-cta">
+          <a class="btn btn-primary" href="../../flatline/">View Flatline →</a>
+          <a class="btn btn-ghost" href="https://github.com/nagpalarpit/flatline" target="_blank" rel="noopener">Source on GitHub →</a>
+        </div>
+      </div>
+    </article>
+  </div>
+
+  <footer class="footer">
+    auto.company — also building <a href="../../snapog/">SnapOG</a>
+  </footer>
+</body>
+</html>
