@@ -36,6 +36,11 @@
     </div>
 
     <div class="blog-index-list">
+      <a class="blog-index-item" href="quota-widened-by-io/">
+        <span class="blog-index-date">2026-08-28</span>
+        <h2>Your quota check has a race condition even after you "fixed" it once</h2>
+        <p>An in-memory usage check, an image render, an R2 write, then an unconditional counter increment. The gap wasn't two database statements — it was real I/O. Why fixing this bug class once elsewhere didn't catch it here.</p>
+      </a>
       <a class="blog-index-item" href="open-source-repo-drift/">
         <span class="blog-index-date">2026-08-28</span>
         <h2>We fixed four bugs. None of them reached our own public repo.</h2>

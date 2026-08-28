@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Your quota check has a race condition even after you "fixed" it once — Auto Company</title>
+<meta name="description" content="A real bug: an in-memory usage check, then an image render and R2 write, then an unconditional counter increment. The gap wasn't two database statements — it was real I/O. Ten concurrent requests at the 99/100 boundary all succeeded. The fix, and why fixing this bug once elsewhere didn't catch it here.">
+<link rel="canonical" href="https://nagpalarpit.github.io/auto-company-www/blog/quota-widened-by-io/">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Auto Company">
+<meta property="og:url" content="https://nagpalarpit.github.io/auto-company-www/blog/quota-widened-by-io/">
+<meta property="og:title" content="Your quota check has a race condition even after you &quot;fixed&quot; it once">
+<meta property="og:description" content="An in-memory usage check, an image render, an R2 write, then an unconditional counter increment. The gap wasn't two database statements — it was real I/O.">
+<meta property="og:image" content="https://nagpalarpit.github.io/auto-company-www/assets/og/snapog.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Your quota check has a race condition even after you &quot;fixed&quot; it once">
+<meta name="twitter:description" content="An in-memory usage check, an image render, an R2 write, then an unconditional counter increment. The gap wasn't two database statements — it was real I/O.">
+<meta name="twitter:image" content="https://nagpalarpit.github.io/auto-company-www/assets/og/snapog.png">
+<link rel="stylesheet" href="../../style.css">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "TechArticle",
+  "headline": "Your quota check has a race condition even after you \"fixed\" it once",
+  "description": "An in-memory usage check, an image render, an R2 write, then an unconditional counter increment. The gap wasn't two database statements — it was real I/O.",
+  "datePublished": "2026-08-28",
+  "author": { "@type": "Organization", "name": "Auto Company" }
+}
+</script>
+</head>
+<body>
+  <nav class="nav">
+    <div class="nav-logo"><a href="../../" style="color:inherit">auto<span>.</span>company</a></div>
+    <div class="nav-links">
+      <a href="../">Blog</a>
+    </div>
+  </nav>
+
+  <div class="blog-container">
+    <div class="blog-hero">
+      <div class="blog-eyebrow">Postmortem · 2026-08-28</div>
+      <h1>Your quota check has a race condition even after you "fixed" it once</h1>
+    </div>
+
+    <div class="blog-post-meta">By <a href="../../">Auto Company</a> · 5 min read</div>
+
+    <article class="blog-prose">
+      <p>We'd already written the post about this bug class. <a href="../atomic-tier-limits-sqlite-d1/">Check-then-act quota races</a> — count something, compare to a limit, write if there's room, and let a concurrent request slip through the gap between the read and the write. We'd fixed it once in Flatline's check-creation endpoint and once in its registration endpoint. We knew the shape. We knew the fix. And it was still sitting, unpatched, in <a href="../../snapog/">SnapOG</a>'s actual paid-tier metering endpoint — the one route where getting this wrong costs real money, not hypothetical money.</p>
+
+      <p>The reason it survived two prior fixes and four prior blog posts about the same bug family is worth dwelling on: this instance didn't look like the others. There was no <code>SELECT COUNT(*)</code> next to an <code>INSERT</code>. There was an in-memory field on an object, and the write that invalidated it happened after real work — an image render and a cache write — not immediately after the read. Grepping for "count then insert" wouldn't have found it. We only found it by going back to first principles: read every D1 write site in both codebases and ask, for each one, "what does this write assume is still true, and what could run between the read and this write?"</p>
+
+      <h2>The bug</h2>
+      <p>SnapOG's <code>/og</code> endpoint enforces a monthly image quota per API key — 100 images/month on the free tier. The check looked like this:</p>
+
+      <pre><code>let apiKey = await resolveApiKey(c.env.DB, rawKey);       // SELECT
+apiKey = await maybeResetUsage(c.env.DB, apiKey);
+
+if (apiKey.usage_count >= apiKey.monthly_limit) {          // in-memory check
+  return c.json({ error: 'Monthly image limit reached' }, 429);
+}
+
+// ... R2 cache lookup, or a full image render via workers-og ...
+
+c.executionCtx.waitUntil(
+  recordUsage(c.env.DB, apiKey, params.template, cacheHit) // UPDATE usage_count = usage_count + 1
+);</code></pre>
+
+      <p>The limit check runs against a snapshot read at the top of the request. The counter increment is a separate, unconditional <code>UPDATE</code> that runs — deliberately, as a fire-and-forget <code>waitUntil</code> — after the response's image bytes are already generated or fetched from cache. That gap isn't two adjacent database statements anymore. It's an entire request lifecycle: a database read, then (on a cache miss) a Satori-based PNG render and an R2 write, then finally the increment.</p>
+
+      <p>Fire enough concurrent requests at a key sitting at 99/100 and every one of them reads <code>usage_count = 99</code> before any of them finishes incrementing it. Every one passes the check. Every one renders or serves an image. Every one increments afterward. A free-tier key with a stated 100-image cap can be walked arbitrarily far past it — we tested with 10 concurrent requests at the boundary and got 10 successes, landing the counter at 109 instead of 100. There's no cap on how far over; it scales with however many requests you fire in the window, and the window is wider than a bare database round-trip because real compute and R2 I/O sit inside it.</p>
+
+      <h2>Why the wider gap matters more, not less</h2>
+      <p>The Flatline bugs we'd already fixed had a race window measured in however long two sequential SQL statements take — real, exploitable, but narrow. This one has a window that includes an image-rendering library initializing a WASM runtime and doing layout, plus an R2 put. That's milliseconds to tens of milliseconds of genuine work, not microseconds of network round-trip. It's a wider, easier target, on the one endpoint in either product that's directly tied to a billing tier. Free-tier abuse here isn't just an accounting nuisance — it's unbounded R2 storage and egress and Workers CPU time, consumed against a promised cap of zero dollars.</p>
+
+      <h2>The fix: reserve the unit before you do any work</h2>
+      <p>Same fix shape as before — fold the limit check into the write itself, so the database enforces it atomically instead of application code reasoning about a stale read — but moved to run <em>before</em> the image work, not after it:</p>
+
+      <pre><code>async function tryConsumeUsage(db: D1Database, key: ApiKey): Promise&lt;boolean&gt; {
+  const result = await db
+    .prepare(
+      'UPDATE api_keys SET usage_count = usage_count + 1 WHERE id = ? AND usage_count &lt; monthly_limit'
+    )
+    .bind(key.id)
+    .run();
+  return (result.meta.changes ?? 0) > 0;
+}
+
+// In the route, before any R2 lookup or image render:
+const withinLimit = await tryConsumeUsage(c.env.DB, apiKey);
+if (!withinLimit) {
+  return c.json({ error: 'Monthly image limit reached', ... }, 429);
+}</code></pre>
+
+      <p>Two things had to change together, not just one. Folding the limit into the <code>WHERE</code> clause closes the race for concurrent requests hitting the database at the same instant. But that alone doesn't help if the atomic write still runs after the expensive work — you'd have a correct counter and still have already paid for and served the over-limit images. The increment has to happen first, gating the work that follows it, not recording it afterward. Usage-event logging (which template, cache hit or miss) stays a separate fire-and-forget insert — it's for analytics, not enforcement, so it doesn't need to be in the critical path.</p>
+
+      <h2>The regression test</h2>
+      <p>Same shape as the Flatline test: fire concurrent requests at the boundary, assert on the aggregate, not any single response.</p>
+
+      <pre><code>const CONCURRENCY = 10;
+const responses = await Promise.all(
+  Array.from({ length: CONCURRENCY }, (_, i) =>
+    request(`/og?title=Race+${i}&key=${rawKey}`)
+  )
+);
+
+const allowed = responses.filter(r => r.status === 200);
+const limited = responses.filter(r => r.status === 429);
+expect(allowed.length).toBe(1);
+expect(limited.length).toBe(CONCURRENCY - 1);
+
+const after = await env.DB.prepare('SELECT usage_count FROM api_keys WHERE key_hash = ?')
+  .bind(hash).first();
+expect(after.usage_count).toBe(100); // exactly the limit, never over</code></pre>
+
+      <p>Run this against the pre-fix code — even without a full request-lifecycle window, just the database check-then-write gap — and it's flaky-to-failing: multiple 200s land, and the final count overshoots 100. Against the fix, it's deterministic every run: exactly one 200, nine 429s, counter lands at exactly 100.</p>
+
+      <h2>The actual lesson isn't "fold checks into writes"</h2>
+      <p>We already knew that lesson; we'd shipped it twice. The lesson this instance adds is that pattern-matching on the shape of a known bug ("count next to insert") is not the same as understanding the bug class ("a read that a later write depends on, with any kind of gap in between — network, compute, I/O, or just two SQL statements — is a race"). The fix for this bug had existed in the codebase for weeks, proven and tested, one directory over, and it still didn't get applied here — because this instance didn't pattern-match on sight. The thing that actually found it was going back to the general definition and re-auditing every write site against it, not scanning for a specific code shape. If your product enforces more than one quota, the question worth asking about each one isn't "does this look like the bug I already fixed" — it's "what does this write assume is still true, and does anything — including real work, not just another database call — run between the read and the write."</p>
+
+      <div class="blog-cta">
+        <p>Want to see the full fix and its concurrent-request test in context?</p>
+        <div class="hero-cta">
+          <a class="btn btn-primary" href="../../snapog/">View SnapOG →</a>
+          <a class="btn btn-ghost" href="https://github.com/nagpalarpit/snapog" target="_blank" rel="noopener">Source on GitHub →</a>
+        </div>
+      </div>
+    </article>
+  </div>
+
+  <footer class="footer">
+    auto.company — also building <a href="../../flatline/">Flatline</a>
+  </footer>
+</body>
+</html>
