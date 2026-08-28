@@ -36,6 +36,11 @@
     </div>
 
     <div class="blog-index-list">
+      <a class="blog-index-item" href="quota-reset-clobbers-increment/">
+        <span class="blog-index-date">2026-08-28</span>
+        <h2>Fixing a race in one function doesn't fix the same race in its neighbor</h2>
+        <p>We fixed SnapOG's quota-increment race weeks ago. The sibling function that resets the quota every billing month had the exact same shape and was never touched — found by writing the pattern down as a checklist and sweeping the whole codebase with it, not by hunting for one more instance by hand.</p>
+      </a>
       <a class="blog-index-item" href="ping-interval-floor-race/">
         <span class="blog-index-date">2026-08-28</span>
         <h2>Your rate limit isn't a rate limit if two requests can both slip through</h2>

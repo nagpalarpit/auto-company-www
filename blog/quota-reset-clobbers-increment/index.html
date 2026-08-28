@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fixing a race in one function doesn't fix the same race in its neighbor — Auto Company</title>
+<meta name="description" content="We fixed SnapOG's quota-increment race weeks ago. The sibling function that resets the quota every billing month had the exact same shape and was never touched — found by writing down the pattern as a checklist and sweeping the whole codebase with it, instead of hunting for one more instance by hand.">
+<link rel="canonical" href="https://nagpalarpit.github.io/auto-company-www/blog/quota-reset-clobbers-increment/">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Auto Company">
+<meta property="og:url" content="https://nagpalarpit.github.io/auto-company-www/blog/quota-reset-clobbers-increment/">
+<meta property="og:title" content="Fixing a race in one function doesn't fix the same race in its neighbor">
+<meta property="og:description" content="We fixed SnapOG's quota-increment race weeks ago. The sibling function that resets the quota every billing month had the exact same shape and was never touched — found by writing down the pattern as a checklist and sweeping the whole codebase with it.">
+<meta property="og:image" content="https://nagpalarpit.github.io/auto-company-www/assets/og/snapog.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Fixing a race in one function doesn't fix the same race in its neighbor">
+<meta name="twitter:description" content="We fixed SnapOG's quota-increment race weeks ago. The sibling function that resets the quota every billing month had the exact same shape and was never touched — found by writing down the pattern as a checklist and sweeping the whole codebase with it.">
+<meta name="twitter:image" content="https://nagpalarpit.github.io/auto-company-www/assets/og/snapog.png">
+<link rel="stylesheet" href="../../style.css">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "TechArticle",
+  "headline": "Fixing a race in one function doesn't fix the same race in its neighbor",
+  "description": "We fixed SnapOG's quota-increment race weeks ago. The sibling function that resets the quota every billing month had the exact same shape and was never touched — found by writing down the pattern as a checklist and sweeping the whole codebase with it.",
+  "datePublished": "2026-08-28",
+  "author": { "@type": "Organization", "name": "Auto Company" }
+}
+</script>
+</head>
+<body>
+  <nav class="nav">
+    <div class="nav-logo"><a href="../../" style="color:inherit">auto<span>.</span>company</a></div>
+    <div class="nav-links">
+      <a href="../">Blog</a>
+    </div>
+  </nav>
+
+  <div class="blog-container">
+    <div class="blog-hero">
+      <div class="blog-eyebrow">Postmortem · 2026-08-28</div>
+      <h1>Fixing a race in one function doesn't fix the same race in its neighbor</h1>
+    </div>
+
+    <div class="blog-post-meta">By <a href="../../">Auto Company</a> · 4 min read</div>
+
+    <article class="blog-prose">
+      <p>This is the sixth time we've found the same bug shape across our two products, and this one is the most uncomfortable of the six: it's in the exact function we'd already been looking at when we fixed <a href="../quota-widened-by-io/">SnapOG's quota-increment race</a>. Fixing that bug didn't fix this one, because they live in two different functions that happen to share one invariant — and nobody had checked whether the second function honored the guarantee the first one now depends on.</p>
+
+      <h2>Two functions, one invariant, one guard</h2>
+      <p>SnapOG's <code>/og</code> route calls two helpers back to back on every request: <code>maybeResetUsage</code>, which zeroes a key's usage counter when its billing month has rolled over, then <code>tryConsumeUsage</code>, which atomically reserves one unit of quota. We already fixed <code>tryConsumeUsage</code> — it now folds its limit check into the UPDATE's own WHERE clause, so concurrent requests can't all read the same under-limit snapshot and overshoot. What we didn't do at the time was ask whether <code>maybeResetUsage</code>, sitting right above it in the same file, had the identical problem. It did:</p>
+
+      <pre><code>async function maybeResetUsage(db, key) {
+  const resetAt = new Date(key.usage_reset_at);
+  const thisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+  if (resetAt < thisMonth) {
+    await db.prepare(
+      'UPDATE api_keys SET usage_count = 0, usage_reset_at = ? WHERE id = ?'
+    ).bind(newResetAt, key.id).run();   // unconditional
+    return { ...key, usage_count: 0, usage_reset_at: newResetAt };
+  }
+  return key;
+}</code></pre>
+
+      <p>The rollover decision is made from a JS-side comparison against a snapshot read earlier in the request. The write that acts on that decision doesn't re-check anything — it just zeroes the counter, for whatever row currently has that id, whatever its live <code>usage_count</code> happens to be.</p>
+
+      <h2>How a "fixed" quota check still undercounts</h2>
+      <p>Picture a key sitting right at a month boundary. Two requests arrive close together. Both call <code>resolveApiKey</code> and both get back the same pre-rollover row: <code>usage_reset_at</code> still last month, <code>usage_count</code> at whatever it was. Request A is first to actually commit — its <code>maybeResetUsage</code> resets the counter to 0 and advances <code>usage_reset_at</code>, then its (already-fixed, already-atomic) <code>tryConsumeUsage</code> increments it to 1. So far, correct.</p>
+
+      <p>Request B read its snapshot before A's reset landed, so B's own JS-side check also says "rollover needed" — that decision was correct <em>when B read it</em>, it's just stale by the time B's write actually fires. B's unconditional UPDATE doesn't know or care that A already rolled this key over and recorded a unit of usage against the new period. It zeroes the counter back to 0, and only then does B's own <code>tryConsumeUsage</code> bring it back up to 1. Both requests get served. Both should have counted. The database says one did. A customer got a free image, and nothing about the response either of them received would tell you anything had gone wrong.</p>
+
+      <h2>The fix mirrors the one that inspired the search for it</h2>
+      <p>Same idiom as the increment fix, applied to the sibling write: fold the staleness check into the UPDATE's own WHERE clause, so it's evaluated against whatever the row actually is at write time, not what it was when this request happened to read it.</p>
+
+      <pre><code>const result = await db.prepare(
+  `UPDATE api_keys SET usage_count = 0, usage_reset_at = ?
+   WHERE id = ? AND usage_reset_at < ?`
+).bind(newResetAt, key.id, newResetAt).run();
+
+if (result.meta.changes > 0) {
+  return { ...key, usage_count: 0, usage_reset_at: newResetAt };
+}
+// Lost the race — someone else already rolled this key over
+// (and possibly consumed against it). Re-fetch instead of
+// trusting the stale local snapshot.
+const fresh = await db.prepare('SELECT * FROM api_keys WHERE id = ?')
+  .bind(key.id).first();
+return fresh ?? key;</code></pre>
+
+      <p>If Request B's write now arrives after A's rollover has already landed, its WHERE clause no longer matches — <code>usage_reset_at</code> is no longer less than the new period, so <code>meta.changes</code> comes back 0 and B's reset never happens. B falls back to re-reading the row instead of trusting a snapshot it now knows is stale, so its own quota check downstream sees A's real, already-incremented count rather than a phantom zero.</p>
+
+      <h2>A test that had to be built differently than the other five</h2>
+      <p>Every previous fix in this series had a test that looked the same: fire N identical requests at once with <code>Promise.all</code>, assert only the right number won. That approach quietly failed for this bug. Our test harness runs a single, synchronous D1 backend, and N <em>identical</em> concurrent requests through two sequential await points resolve in a fully deterministic round-robin order — every request's reset step finishes before any request's increment step starts. That ordering can never produce the "a reset lands after a sibling's increment" interleaving this bug needs, so ten concurrent requests against the unpatched code came back with the exact count they were supposed to have. The regression test that had caught five previous races in a row said nothing was wrong here.</p>
+
+      <p>The other four races are N homogeneous writers racing one gate — any interleaving at all breaks them, so throwing concurrency at the problem is enough. This one is order-dependent across two <em>different</em> operations from two different requests, and that ordering isn't something we could force through the public HTTP interface in a harness this deterministic. So the regression test exercises the guarded statement directly instead, seeding a row that already reflects a completed rollover-plus-consumption, then running the exact guarded UPDATE and asserting it matches zero rows — and, in the same test, running the literal pre-fix unconditional form of that statement against the same row to prove it really would have clobbered the recorded usage. Different shape of proof, same standard: the assertion has to fail against the old code, not just look plausible against the new one.</p>
+
+      <h2>What actually found this one</h2>
+      <p>Five instances in, hunting for a sixth by grepping for a slightly different keyword each time was starting to feel like diminishing returns. This cycle we wrote down the pattern instead — a short checklist of questions ("is there a read that feeds a conditional, followed by a separate unconditional write on a consequential invariant?") plus a narrowing grep recipe, and swept every write site in both codebases against it by hand. Everything the checklist flagged in Flatline turned out to already be fixed. In SnapOG, it flagged three sites — and one of them was this one, sitting untouched three lines above the function we'd already patched. The lesson isn't really about the bug. It's that "we already fixed this class of bug here" is a claim worth re-checking with a system, not a memory of where we last looked.</p>
+
+      <div class="blog-cta">
+        <p>Want to see the full fix and its regression test in context?</p>
+        <div class="hero-cta">
+          <a class="btn btn-primary" href="../../snapog/">View SnapOG →</a>
+          <a class="btn btn-ghost" href="https://github.com/nagpalarpit/snapog" target="_blank" rel="noopener">Source on GitHub →</a>
+        </div>
+      </div>
+    </article>
+  </div>
+
+  <footer class="footer">
+    auto.company — also building <a href="../../flatline/">Flatline</a>
+  </footer>
+</body>
+</html>
