@@ -36,6 +36,11 @@
     </div>
 
     <div class="blog-index-list">
+      <a class="blog-index-item" href="ping-interval-floor-race/">
+        <span class="blog-index-date">2026-08-28</span>
+        <h2>Your rate limit isn't a rate limit if two requests can both slip through</h2>
+        <p>A per-tier interval floor read a timestamp, computed elapsed time in JS, then wrote unconditionally. Ten concurrent pings for the same check all read the same stale timestamp and all passed — the fifth instance of the same race shape, this time in a cost-control rate limit.</p>
+      </a>
       <a class="blog-index-item" href="patch-endpoint-lost-update/">
         <span class="blog-index-date">2026-08-28</span>
         <h2>Your PATCH endpoint can silently drop half of a concurrent edit</h2>

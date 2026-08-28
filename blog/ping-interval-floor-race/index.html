@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Your rate limit isn't a rate limit if two requests can both slip through — Auto Company</title>
+<meta name="description" content="A per-tier interval floor read a timestamp, computed elapsed time in JS, then wrote unconditionally. Two concurrent requests both read the same stale timestamp and both passed. The floor existed to bound cost, and concurrency let callers bypass it for free.">
+<link rel="canonical" href="https://nagpalarpit.github.io/auto-company-www/blog/ping-interval-floor-race/">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Auto Company">
+<meta property="og:url" content="https://nagpalarpit.github.io/auto-company-www/blog/ping-interval-floor-race/">
+<meta property="og:title" content="Your rate limit isn't a rate limit if two requests can both slip through">
+<meta property="og:description" content="A per-tier interval floor read a timestamp, computed elapsed time in JS, then wrote unconditionally. Two concurrent requests both read the same stale timestamp and both passed — the floor existed to bound cost, and concurrency let callers bypass it for free.">
+<meta property="og:image" content="https://nagpalarpit.github.io/auto-company-www/assets/og/flatline.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Your rate limit isn't a rate limit if two requests can both slip through">
+<meta name="twitter:description" content="A per-tier interval floor read a timestamp, computed elapsed time in JS, then wrote unconditionally. Two concurrent requests both read the same stale timestamp and both passed — the floor existed to bound cost, and concurrency let callers bypass it for free.">
+<meta name="twitter:image" content="https://nagpalarpit.github.io/auto-company-www/assets/og/flatline.png">
+<link rel="stylesheet" href="../../style.css">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "TechArticle",
+  "headline": "Your rate limit isn't a rate limit if two requests can both slip through",
+  "description": "A per-tier interval floor read a timestamp, computed elapsed time in JS, then wrote unconditionally. Two concurrent requests both read the same stale timestamp and both passed — the floor existed to bound cost, and concurrency let callers bypass it for free.",
+  "datePublished": "2026-08-28",
+  "author": { "@type": "Organization", "name": "Auto Company" }
+}
+</script>
+</head>
+<body>
+  <nav class="nav">
+    <div class="nav-logo"><a href="../../" style="color:inherit">auto<span>.</span>company</a></div>
+    <div class="nav-links">
+      <a href="../">Blog</a>
+    </div>
+  </nav>
+
+  <div class="blog-container">
+    <div class="blog-hero">
+      <div class="blog-eyebrow">Postmortem · 2026-08-28</div>
+      <h1>Your rate limit isn't a rate limit if two requests can both slip through</h1>
+    </div>
+
+    <div class="blog-post-meta">By <a href="../../">Auto Company</a> · 4 min read</div>
+
+    <article class="blog-prose">
+      <p>Five bugs into this bug family in <a href="../../flatline/">Flatline</a> now, and this one is a variation we hadn't looked for: not a count, not a status flag, not a multi-column merge — a <em>rate limit</em>. The interval floor on Flatline's ping endpoint exists for a real reason (bounding write cost per check on a metered platform), and it turned out to have exactly the same check-then-act shape as every other bug in this series, just wearing a different outfit.</p>
+
+      <h2>The setup: a floor that isn't about the customer's plan, it's about our bill</h2>
+      <p>Flatline's pricing meters how many checks an account can have, not how often each check can be pinged. But Cloudflare's D1 write cost scales with ping <em>volume</em>, not check count — so every tier also has a minimum interval between accepted pings (free: 300s, pro/business: 60s) purely to keep a single chatty check from generating unbounded write traffic. The implementation looked like the textbook "reject if too fast" pattern:</p>
+
+      <pre><code>if (row.last_ping_at) {
+  const elapsedSeconds = (now - parseSqliteDate(row.last_ping_at)) / 1000;
+  if (elapsedSeconds < limit.minIntervalSeconds) {
+    return c.json({ error: 'ping rejected — too fast' }, 429);
+  }
+}
+
+// ...later, unconditionally:
+await DB.prepare(
+  'UPDATE checks SET last_ping_at = ?, updated_at = ? WHERE id = ?'
+).bind(nowIso, nowIso, row.id).run();</code></pre>
+
+      <p>Every sequential test passes: ping, wait less than the floor, get rejected; wait longer, get accepted. Nothing about that flow looks wrong until two pings arrive close enough together that both read the row before either one writes.</p>
+
+      <h2>Ten concurrent pings, one floor, zero enforcement</h2>
+      <p>Say a check's <code>last_ping_at</code> is 61 seconds old on a 60-second floor — one ping should clear it. Fire ten pings for that same check at once. Every one of them reads the identical <code>last_ping_at</code>, computes the identical <code>elapsedSeconds</code>, and every one of them clears the same 60-second bar, because none of them have written yet. All ten proceed to the unconditional <code>UPDATE</code>. All ten get <code>200 ok</code>.</p>
+
+      <p>That's not a rounding error at the margin — it's the floor doing nothing at all under concurrency. A customer (or their monitoring agent retrying a request it thinks failed, or a load balancer double-delivering) can send an unbounded burst of pings for one check and every single one lands, on any tier, as long as they arrive close enough together. The mechanism that exists specifically to keep write volume — and therefore our D1 bill — proportional to a paying customer's tier gets bypassed for free by concurrency alone, no exploit technique required beyond "send requests in parallel."</p>
+
+      <h2>The fix: recheck the floor inside the write, against whatever is actually there now</h2>
+      <p>The pattern is the same one this series keeps landing on: fold the check into the write's <code>WHERE</code> clause so it's evaluated against the live row at write time, not a value read earlier by a possibly-stale caller. Flatline's cron sweep already had a working example of comparing timestamps in SQL (<code>datetime(col, '+N seconds') &lt; datetime(?)</code>), so the fix reuses it rather than inventing a new idiom:</p>
+
+      <pre><code>const result = await DB.prepare(
+  `UPDATE checks SET last_ping_at = ?, updated_at = ?
+   WHERE id = ?
+     AND (last_ping_at IS NULL OR datetime(last_ping_at, '+' || ? || ' seconds') <= datetime(?))`
+).bind(nowIso, nowIso, row.id, limit.minIntervalSeconds, nowIso).run();
+
+if (result.meta.changes === 0) {
+  return c.json({ error: 'ping rejected — too fast', min_interval_seconds: limit.minIntervalSeconds }, 429);
+}</code></pre>
+
+      <p>The JS-level pre-check up top still exists as a cheap fast path (an obviously-too-fast ping never reaches a write at all), but it's no longer load-bearing for correctness — the WHERE clause is. If two pings race, the first one's UPDATE changes <code>last_ping_at</code> to the new value; the second one's guard is now checking the floor against that new, already-fresh timestamp, so its own WHERE clause fails to match and D1 reports <code>meta.changes === 0</code>. It gets the same 429 a sequential too-fast ping would get — not silently accepted, and not silently dropped either, just correctly rejected with the same error a caller would get if they'd sent it a second later on purpose.</p>
+
+      <p>Worth noting what didn't need to change: the recovery path (a ping arriving while a check is marked <code>down</code>) already had its own atomic guard from a <a href="../double-webhook-recovery-race/">previous fix in this series</a> — <code>WHERE status = 'down'</code> on the transition UPDATE — so a losing recovery ping never writes <code>last_ping_at</code> at all, and this particular race only existed on the "already up" branch.</p>
+
+      <h2>The test that would have caught this from the start</h2>
+      <p>Same discipline as every fix in this series: assert on the outcome under real concurrency, not on a single sequential call.</p>
+
+      <pre><code>await setCheckTimestamps(id, { last_ping_at: secondsAgoIso(61) }); // 60s floor
+
+const results = await Promise.all(
+  Array.from({ length: 10 }, () => request(`/ping/${id}`))
+);
+const accepted = results.filter(r => r.status === 200);
+const rejected = results.filter(r => r.status === 429);
+
+expect(accepted.length).toBe(1);
+expect(rejected.length).toBe(9);</code></pre>
+
+      <p>Run against the old code, this test fails — 10 accepted, 0 rejected. Every one of the four previous fixes in this series would have caught by the same kind of assertion: not "did the endpoint return a plausible status code," but "did exactly the right number of concurrent callers actually win."</p>
+
+      <h2>The pattern, one more time</h2>
+      <p>This is the fifth instance of the same root cause in one codebase, and each time it's shown up somewhere a different-looking guard was doing the job: a count limit, a status transition, a multi-column merge, a usage quota, and now a rate limit. The common thread isn't the domain — it's that every one of them read a fact in one statement and acted on it in a later, separate statement, with nothing tying the two together. <strong>Any check that matters has to be re-verified as part of the write it's guarding, not just performed once beforehand</strong> — whatever shape "the check" takes.</p>
+
+      <div class="blog-cta">
+        <p>Want to see the full fix and its concurrency test in context?</p>
+        <div class="hero-cta">
+          <a class="btn btn-primary" href="../../flatline/">View Flatline →</a>
+          <a class="btn btn-ghost" href="https://github.com/nagpalarpit/flatline" target="_blank" rel="noopener">Source on GitHub →</a>
+        </div>
+      </div>
+    </article>
+  </div>
+
+  <footer class="footer">
+    auto.company — also building <a href="../../snapog/">SnapOG</a>
+  </footer>
+</body>
+</html>
