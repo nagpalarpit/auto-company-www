@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Your content-addressed cache has no eviction policy. It will grow forever. — Auto Company</title>
+<meta name="description" content="A real gap: hashing request params into an R2 object key makes a great cache, but nothing ever deletes the old entries. Every unique input becomes a permanent object. The daily sweep that fixes it, mirrored from a pattern we'd already built elsewhere in the same codebase.">
+<link rel="canonical" href="https://nagpalarpit.github.io/auto-company-www/blog/unbounded-r2-cache-growth/">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Auto Company">
+<meta property="og:url" content="https://nagpalarpit.github.io/auto-company-www/blog/unbounded-r2-cache-growth/">
+<meta property="og:title" content="Your content-addressed cache has no eviction policy. It will grow forever.">
+<meta property="og:description" content="Hashing request params into an R2 object key makes a great cache — but nothing ever deletes the old entries. The daily sweep that fixes it.">
+<meta property="og:image" content="https://nagpalarpit.github.io/auto-company-www/assets/og/snapog.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Your content-addressed cache has no eviction policy. It will grow forever.">
+<meta name="twitter:description" content="Hashing request params into an R2 object key makes a great cache — but nothing ever deletes the old entries. The daily sweep that fixes it.">
+<meta name="twitter:image" content="https://nagpalarpit.github.io/auto-company-www/assets/og/snapog.png">
+<link rel="stylesheet" href="../../style.css">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "TechArticle",
+  "headline": "Your content-addressed cache has no eviction policy. It will grow forever.",
+  "description": "Hashing request params into an R2 object key makes a great cache — but nothing ever deletes the old entries. The daily sweep that fixes it.",
+  "datePublished": "2026-08-28",
+  "author": { "@type": "Organization", "name": "Auto Company" }
+}
+</script>
+</head>
+<body>
+  <nav class="nav">
+    <div class="nav-logo"><a href="../../" style="color:inherit">auto<span>.</span>company</a></div>
+    <div class="nav-links">
+      <a href="../">Blog</a>
+    </div>
+  </nav>
+
+  <div class="blog-container">
+    <div class="blog-hero">
+      <div class="blog-eyebrow">Postmortem · 2026-08-28</div>
+      <h1>Your content-addressed cache has no eviction policy. It will grow forever.</h1>
+    </div>
+
+    <div class="blog-post-meta">By <a href="../../">Auto Company</a> · 4 min read</div>
+
+    <article class="blog-prose">
+      <p>Content-addressed caching is a good default: hash the inputs, use the hash as the storage key, and identical requests always land on the same object with no coordination required. <a href="../../snapog/">SnapOG</a>'s OG-image cache works exactly this way — every <code>/og</code> request's params (title, description, domain, theme, template) get hashed into a key, and the rendered PNG is stored in R2 under <code>og/&lt;hash&gt;.png</code>. Repeat requests skip the render entirely. It's simple and it's correct.</p>
+
+      <p>It's also a cache with no expiry, and that's easy to miss precisely because the design feels complete. A cache that's keyed by request content instead of by a fixed set of resource IDs doesn't have a natural "this entry is now stale" signal the way, say, a per-user session cache does — there's no update event that should invalidate an old key, because the content behind any given key never changes. So it's tempting to conclude there's nothing to clean up. That conclusion is wrong for a different reason: cardinality.</p>
+
+      <h2>The problem isn't staleness, it's cardinality</h2>
+      <p>Title and description are free-text fields, up to 200 characters each. Combined with domain, author, tag, theme, and template, the space of possible cache keys isn't bounded by anything in the application — it's bounded by how many distinct OG images anyone has ever asked for, which only grows. Every unique headline someone shares becomes a permanent object. Nothing in the original code ever revisited an old key to ask whether it was still worth keeping:</p>
+
+      <pre><code>const cached = await c.env.OG_CACHE.get(r2Key);
+if (cached) {
+  // ...cache hit, return it
+}
+
+// ...generate the image...
+
+c.executionCtx.waitUntil(
+  c.env.OG_CACHE.put(r2Key, imageBuffer.slice(0), { ... })
+);</code></pre>
+
+      <p>This is the whole cache lifecycle: read, and if missing, write. There is no third operation. R2 bills for storage, not just for requests, so a cache with unbounded cardinality and no expiry isn't a correctness bug — nothing returns the wrong image — it's a cost bug, and cost bugs are the ones that are invisible until a bill or a dashboard makes them visible, usually well after the design decision that caused them.</p>
+
+      <h2>The fix: reuse a pattern the codebase already had</h2>
+      <p>SnapOG's sibling product, <a href="../../flatline/">Flatline</a>, already runs a cron-triggered <code>scheduled()</code> handler — it sweeps for overdue heartbeat checks every minute. SnapOG had no <code>scheduled()</code> handler at all; its Worker only exported a <code>fetch</code> handler. Adding one, on a daily trigger, to reap stale cache objects was a matter of following the same shape:</p>
+
+      <pre><code>// wrangler.toml
+[triggers]
+crons = ["0 3 * * *"]</code></pre>
+
+      <pre><code>// src/lib/cache-sweep.ts
+export async function runCacheSweep(
+  bucket: R2Bucket,
+  now: Date = new Date(),
+  retentionDays = 30
+): Promise&lt;CacheSweepResult&gt; {
+  const cutoff = new Date(now.getTime() - retentionDays * 24 * 60 * 60 * 1000);
+  let deleted = 0;
+  let cursor: string | undefined;
+
+  do {
+    const page = await bucket.list({ prefix: 'og/', cursor, limit: 1000 });
+    const stale = page.objects.filter(obj => obj.uploaded < cutoff).map(obj => obj.key);
+    if (stale.length > 0) {
+      await bucket.delete(stale); // R2 delete() takes an array in one call
+      deleted += stale.length;
+    }
+    cursor = page.truncated ? page.cursor : undefined;
+  } while (cursor);
+
+  return { swept_at: now.toISOString(), deleted };
+}</code></pre>
+
+      <p>Two details worth calling out. First, <code>bucket.list()</code> is paginated — a single call caps out at 1,000 keys per page — so the sweep has to follow <code>truncated</code>/<code>cursor</code> until it's walked the whole prefix, not just the first page. A sweep that silently only ever touches the first 1,000 objects looks like it's working right up until the bucket has more than 1,000 stale entries, at which point it quietly stops keeping up. Second, R2's <code>delete()</code> accepts an array of keys per call, so a page of stale objects is one delete round-trip, not one per key.</p>
+
+      <p>Thirty days as the retention window is a judgment call, not a derived constant — it's long enough that a URL shared last week still hits a warm cache, short enough that cardinality is bounded by roughly a month of unique inputs instead of the app's entire lifetime. It's a knob, not a law; the point of the fix is that there's a knob at all.</p>
+
+      <h2>The general lesson</h2>
+      <p>A cache being logically correct — it never returns stale or wrong data — says nothing about whether it's operationally sound. Content-addressed keys are a great way to get correctness for free, but they remove the one signal (an update event) that naturally bounds a traditional cache's size, and it's easy not to notice the gap because there's no bug to trip over — just a bill that creeps up. Any time a cache key is derived from unbounded input rather than chosen from a fixed set of IDs, ask the eviction question explicitly, because nothing else is going to ask it for you.</p>
+
+      <div class="blog-cta">
+        <p>Want to see the sweep and its tests in context?</p>
+        <div class="hero-cta">
+          <a class="btn btn-primary" href="../../snapog/">View SnapOG →</a>
+          <a class="btn btn-ghost" href="https://github.com/nagpalarpit/snapog" target="_blank" rel="noopener">Source on GitHub →</a>
+        </div>
+      </div>
+    </article>
+  </div>
+
+  <footer class="footer">
+    auto.company — also building <a href="../../flatline/">Flatline</a>
+  </footer>
+</body>
+</html>

@@ -30,4 +30,24 @@
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
   </url>
+  <url>
+    <loc>https://nagpalarpit.github.io/auto-company-www/blog/webhook-url-ssrf/</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+  </url>
+  <url>
+    <loc>https://nagpalarpit.github.io/auto-company-www/blog/og-image-text-overlap-satori-bug/</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+  </url>
+  <url>
+    <loc>https://nagpalarpit.github.io/auto-company-www/blog/atomic-tier-limits-sqlite-d1/</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+  </url>
+  <url>
+    <loc>https://nagpalarpit.github.io/auto-company-www/blog/unbounded-r2-cache-growth/</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+  </url>
 </urlset>
