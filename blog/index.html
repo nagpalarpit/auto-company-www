@@ -36,6 +36,11 @@
     </div>
 
     <div class="blog-index-list">
+      <a class="blog-index-item" href="atomic-tier-limits-sqlite-d1/">
+        <span class="blog-index-date">2026-08-28</span>
+        <h2>Your "check quota then insert" tier limit has a race condition</h2>
+        <p>SELECT COUNT(*) followed by a separate INSERT let 10 concurrent requests blow past a 25-check limit. The one-statement fix, and why it applies to any SQLite/D1-backed quota.</p>
+      </a>
       <a class="blog-index-item" href="og-image-text-overlap-satori-bug/">
         <span class="blog-index-date">2026-08-28</span>
         <h2>Why your Satori-based OG images have overlapping text</h2>

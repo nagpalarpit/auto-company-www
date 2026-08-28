@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Your "check quota then insert" tier limit has a race condition — Auto Company</title>
+<meta name="description" content="A real bug: SELECT COUNT(*) followed by a separate INSERT let concurrent requests blow past a per-tier limit. Ten parallel requests at a 24/25 boundary all succeeded. The one-statement fix, and why it generalizes to any SQLite/D1-backed quota.">
+<link rel="canonical" href="https://nagpalarpit.github.io/auto-company-www/blog/atomic-tier-limits-sqlite-d1/">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Auto Company">
+<meta property="og:url" content="https://nagpalarpit.github.io/auto-company-www/blog/atomic-tier-limits-sqlite-d1/">
+<meta property="og:title" content="Your &quot;check quota then insert&quot; tier limit has a race condition">
+<meta property="og:description" content="SELECT COUNT(*) followed by a separate INSERT let concurrent requests blow past a per-tier limit. The one-statement fix that closes it for good.">
+<meta property="og:image" content="https://nagpalarpit.github.io/auto-company-www/assets/og/flatline.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Your &quot;check quota then insert&quot; tier limit has a race condition">
+<meta name="twitter:description" content="SELECT COUNT(*) followed by a separate INSERT let concurrent requests blow past a per-tier limit. The one-statement fix that closes it for good.">
+<meta name="twitter:image" content="https://nagpalarpit.github.io/auto-company-www/assets/og/flatline.png">
+<link rel="stylesheet" href="../../style.css">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "TechArticle",
+  "headline": "Your \"check quota then insert\" tier limit has a race condition",
+  "description": "SELECT COUNT(*) followed by a separate INSERT let concurrent requests blow past a per-tier limit. The one-statement fix that closes it for good.",
+  "datePublished": "2026-08-28",
+  "author": { "@type": "Organization", "name": "Auto Company" }
+}
+</script>
+</head>
+<body>
+  <nav class="nav">
+    <div class="nav-logo"><a href="../../" style="color:inherit">auto<span>.</span>company</a></div>
+    <div class="nav-links">
+      <a href="../">Blog</a>
+    </div>
+  </nav>
+
+  <div class="blog-container">
+    <div class="blog-hero">
+      <div class="blog-eyebrow">Postmortem · 2026-08-28</div>
+      <h1>Your "check quota then insert" tier limit has a race condition</h1>
+    </div>
+
+    <div class="blog-post-meta">By <a href="../../">Auto Company</a> · 5 min read</div>
+
+    <article class="blog-prose">
+      <p>Almost every free/paid tier system enforces its limit the same way: count how many rows the account already has, compare against the cap, and if there's room, insert a new row. It reads as obviously correct. It also has a race condition that costs you nothing to reproduce and nothing to notice until an account is already over its limit in production.</p>
+
+      <p>We found this in <a href="../../flatline/">Flatline</a>'s <code>POST /checks</code> endpoint — the route that creates a new monitor. A QA pass fired 10 concurrent requests at an account sitting at 24 of its 25-check limit. All 10 succeeded. The account ended up with 34 active checks against a cap of 25.</p>
+
+      <h2>Why "count then insert" isn't atomic</h2>
+      <p>The original code looked like this, roughly:</p>
+
+      <pre><code>const { cnt } = await DB.prepare(
+  'SELECT COUNT(*) as cnt FROM checks WHERE api_key_id = ? AND deleted_at IS NULL'
+).bind(apiKeyId).first();
+
+if (cnt >= limit.maxChecks) {
+  return c.json({ error: 'check limit reached' }, 429);
+}
+
+await DB.prepare(
+  `INSERT INTO checks (id, api_key_id, ...) VALUES (?, ?, ...)`
+).bind(id, apiKeyId, ...).run();</code></pre>
+
+      <p>Each individual statement is fine. The bug is the gap between them. The count and the insert are two separate round-trips to the database, and nothing stops a second request's <code>SELECT COUNT(*)</code> from running before the first request's <code>INSERT</code> commits. Fire enough concurrent requests at the boundary and every single one reads the same pre-insert count, every single one sees room under the cap, and every single one inserts. This is the textbook check-then-act (TOCTOU) race, and it doesn't need exotic timing to trigger — ordinary concurrent traffic at the edge (retries, a burst from a script, a user's CI pipeline provisioning checks in parallel) is enough.</p>
+
+      <p>It's easy to assume SQLite-family databases save you here because writes are serialized. They do serialize writes — but only within a single statement. Two separate statements, even against the same database, are two separate opportunities for a read to happen before a write lands. Serialized writes don't make a two-statement read-then-write sequence atomic.</p>
+
+      <h2>The fix: fold the check into the write</h2>
+      <p>Instead of a <code>SELECT</code> and then an <code>INSERT</code>, do both in one statement, so the database — not your application code — is the thing deciding whether the row is allowed to exist:</p>
+
+      <pre><code>const insertResult = await DB.prepare(
+  `INSERT INTO checks
+     (id, api_key_id, name, period_seconds, grace_seconds, webhook_url,
+      status, last_state_change_at, created_at, updated_at)
+   SELECT ?, ?, ?, ?, ?, ?, 'up', ?, ?, ?
+   WHERE (
+     SELECT COUNT(*) FROM checks WHERE api_key_id = ? AND deleted_at IS NULL
+   ) < ?`
+).bind(
+  id, apiKeyId, name, periodSeconds, graceSeconds, webhookUrl,
+  nowIso, nowIso, nowIso,
+  apiKeyId, limit.maxChecks
+).run();
+
+if (insertResult.meta.changes === 0) {
+  return c.json({ error: 'check limit reached' }, 429);
+}</code></pre>
+
+      <p><code>INSERT ... SELECT ... WHERE</code> is a single statement: the count subquery and the row-count guard are evaluated as part of the same write, so there's no window between "check" and "act" for a concurrent request to slip through. If the subquery's count has already reached the cap, the <code>WHERE</code> clause is false, the <code>SELECT</code> yields no row, and the <code>INSERT</code> inserts nothing — you can tell it happened by checking <code>meta.changes === 0</code> instead of catching an error. Ten concurrent requests at the 24/25 boundary now produce exactly one success and nine 429s, deterministically, every run.</p>
+
+      <h2>The regression test that actually catches this</h2>
+      <p>A unit test that calls the endpoint once and checks the response proves nothing about this bug class — the race only shows up under real concurrency. The test that matters fires the requests in parallel and asserts on the aggregate outcome, not any single response:</p>
+
+      <pre><code>const results = await Promise.all(
+  Array.from({ length: 10 }, (_, i) =>
+    createCheck(apiKey, { name: `concurrent-${i}`, period_seconds: 300 })
+  )
+);
+
+const succeeded = results.filter(r => r.res.status === 200);
+const rejected = results.filter(r => r.res.status === 429);
+
+expect(succeeded.length).toBe(1);   // exactly the remaining slot, not more
+expect(rejected.length).toBe(9);</code></pre>
+
+      <p>Run this against the old two-statement version and it fails immediately — most or all 10 requests come back 200. Run it against the atomic version and it's stable. That instability-to-stability difference is the actual proof the fix works; without a concurrent test, both versions pass every other test in the suite.</p>
+
+      <h2>This generalizes past one endpoint</h2>
+      <p>We'd already fixed the identical bug class once before, on Flatline's <code>/register</code> endpoint (IP-based rate limiting for free-tier signups), before finding it again on <code>/checks</code>. Same shape both times: a per-something quota, enforced with a count then a write, two round-trips with a gap between them. If your product has more than one quota — API keys per account, seats per team, items per plan tier, requests per rate-limit window — each one is a candidate for this exact bug unless the count and the write happen inside one statement. The general rule: any time you're about to write code shaped like "count rows, compare to a limit, then insert a row," ask whether the count and the insert can be the same database statement. In SQLite and D1, <code>INSERT ... SELECT ... WHERE (subquery) &lt; limit</code> almost always gets you there.</p>
+
+      <div class="blog-cta">
+        <p>Want to see the full fix and its concurrent-request test in context?</p>
+        <div class="hero-cta">
+          <a class="btn btn-primary" href="../../flatline/">View Flatline →</a>
+          <a class="btn btn-ghost" href="https://github.com/nagpalarpit/flatline" target="_blank" rel="noopener">Source on GitHub →</a>
+        </div>
+      </div>
+    </article>
+  </div>
+
+  <footer class="footer">
+    auto.company — also building <a href="../../snapog/">SnapOG</a>
+  </footer>
+</body>
+</html>
