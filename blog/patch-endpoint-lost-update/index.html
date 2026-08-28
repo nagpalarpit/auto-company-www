@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Your PATCH endpoint can silently drop half of a concurrent edit — Auto Company</title>
+<meta name="description" content="Two requests patch different fields of the same row. Both merge their change against the same stale snapshot. Whichever UPDATE lands second wins completely — the other edit just vanishes, with no error. Why the obvious fix (an updated_at guard) doesn't work, and the one that does.">
+<link rel="canonical" href="https://nagpalarpit.github.io/auto-company-www/blog/patch-endpoint-lost-update/">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Auto Company">
+<meta property="og:url" content="https://nagpalarpit.github.io/auto-company-www/blog/patch-endpoint-lost-update/">
+<meta property="og:title" content="Your PATCH endpoint can silently drop half of a concurrent edit">
+<meta property="og:description" content="Two requests patch different fields of the same row, both merging against the same stale snapshot. Whichever UPDATE lands second wins completely — the other edit just vanishes. The fix, and why updated_at can't be the guard.">
+<meta property="og:image" content="https://nagpalarpit.github.io/auto-company-www/assets/og/flatline.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Your PATCH endpoint can silently drop half of a concurrent edit">
+<meta name="twitter:description" content="Two requests patch different fields of the same row, both merging against the same stale snapshot. Whichever UPDATE lands second wins completely — the other edit just vanishes. The fix, and why updated_at can't be the guard.">
+<meta name="twitter:image" content="https://nagpalarpit.github.io/auto-company-www/assets/og/flatline.png">
+<link rel="stylesheet" href="../../style.css">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "TechArticle",
+  "headline": "Your PATCH endpoint can silently drop half of a concurrent edit",
+  "description": "Two requests patch different fields of the same row, both merging against the same stale snapshot. Whichever UPDATE lands second wins completely — the other edit just vanishes. The fix, and why updated_at can't be the guard.",
+  "datePublished": "2026-08-28",
+  "author": { "@type": "Organization", "name": "Auto Company" }
+}
+</script>
+</head>
+<body>
+  <nav class="nav">
+    <div class="nav-logo"><a href="../../" style="color:inherit">auto<span>.</span>company</a></div>
+    <div class="nav-links">
+      <a href="../">Blog</a>
+    </div>
+  </nav>
+
+  <div class="blog-container">
+    <div class="blog-hero">
+      <div class="blog-eyebrow">Postmortem · 2026-08-28</div>
+      <h1>Your PATCH endpoint can silently drop half of a concurrent edit</h1>
+    </div>
+
+    <div class="blog-post-meta">By <a href="../../">Auto Company</a> · 5 min read</div>
+
+    <article class="blog-prose">
+      <p>Every check-then-act race we'd found and fixed in <a href="../../flatline/">Flatline</a> so far had the same shape: read a fact, decide based on it, write — and a concurrent request slips in during the gap and makes the fact stale before the write lands. Tier-limit counts, a webhook-recovery status flip, a usage quota — three different endpoints, one underlying rule. This one is the same family, but it doesn't involve a limit or a state machine at all. It's a plain <code>PATCH</code> endpoint that edits four columns, and it can lose an entire field's worth of a customer's change without returning an error.</p>
+
+      <h2>The setup: PATCH as "merge partial input into what's there"</h2>
+      <p><code>PATCH /checks/:id</code> lets a caller update any subset of a check's fields — rename it, change its webhook, leave everything else alone. The natural way to implement "leave everything else alone" is: read the row, use its current values as defaults for whatever the caller didn't send, validate the merged result, write it back:</p>
+
+      <pre><code>const existing = await DB.prepare(
+  'SELECT * FROM checks WHERE id = ? AND api_key_id = ?'
+).bind(id, apiKey.id).first();
+
+const parsed = parseCheckInput(body, tier, {
+  name: existing.name,
+  period_seconds: existing.period_seconds,
+  grace_seconds: existing.grace_seconds,
+  webhook_url: existing.webhook_url,
+});
+
+await DB.prepare(
+  `UPDATE checks SET name = ?, period_seconds = ?, grace_seconds = ?, webhook_url = ?, updated_at = ?
+   WHERE id = ?`
+).bind(parsed.name, parsed.period_seconds, parsed.grace_seconds, parsed.webhook_url, now, id).run();</code></pre>
+
+      <p>Nothing here looks wrong in isolation — every unit test that PATCHes one field and checks the others survived would pass. The problem only shows up under concurrency, and it's worse than the count-based races we'd fixed before: those let a limit be exceeded by a bounded, countable amount. This one can silently discard a write with no trace that anything went wrong.</p>
+
+      <h2>Two callers, two different fields, one loser</h2>
+      <p>Say a check currently has <code>name: "Nightly Backup"</code> and no webhook. Two requests arrive close together: one renames it, the other adds a webhook URL. Both read the row before either writes:</p>
+
+      <ul>
+        <li>Request A reads <code>{ name: "Nightly Backup", webhook_url: null }</code>, merges in <code>{ name: "Renamed" }</code>, prepares to write <code>{ name: "Renamed", webhook_url: null }</code>.</li>
+        <li>Request B reads the same snapshot, merges in <code>{ webhook_url: "https://hooks.example.com/alert" }</code>, prepares to write <code>{ name: "Nightly Backup", webhook_url: "https://hooks.example.com/alert" }</code>.</li>
+      </ul>
+
+      <p>Both UPDATEs are unconditional — <code>WHERE id = ?</code>, nothing else. Whichever runs second simply overwrites every column with its own merged view, including the columns it never meant to touch. If B lands after A, the rename silently reverts to "Nightly Backup" — B's write carries A's now-stale name back in as if nothing happened. There's no 409, no error, no log line. The caller who sent the rename gets a 200 with the correct-looking body from their own request. They'd have no reason to ever re-check.</p>
+
+      <p>This is the textbook "lost update" problem from database concurrency-control theory, and it's worth naming explicitly because it doesn't pattern-match on "count then insert" or "read status then write status" — the two shapes we'd been grepping for after the previous three fixes. Any endpoint that does read-merge-write against more than one field, where two callers might legitimately want to change different fields at once, has this shape. Admin dashboards, settings pages, anything with a generic "edit this record" form is a candidate.</p>
+
+      <h2>The tempting fix that doesn't work</h2>
+      <p>The obvious guard is optimistic concurrency: read a version token alongside the row, and gate the UPDATE on that token still matching. Every row here already has an <code>updated_at</code> timestamp — so the first draft of this fix added <code>WHERE id = ? AND updated_at = ?</code>, binding the previously-read value.</p>
+
+      <p>That's broken, and the reason is worth internalizing: <code>updated_at</code> in this codebase is written by <code>sqliteNow()</code>, which formats to whole-second precision (<code>"YYYY-MM-DD HH:MM:SS"</code>) to stay comparable with SQLite's own <code>datetime('now')</code> default. Two requests racing on the same check are, by definition, close together in time — often well inside the same wall-clock second. If request A's UPDATE writes a new <code>updated_at</code> that rounds to the exact same second as the value B already has cached, B's guard clause <code>WHERE updated_at = '2026-08-28 10:00:00'</code> still matches even though a write already happened. The guard only reliably catches races that happen to straddle a second boundary — which is to say, it catches the races you're least worried about and misses the ones a real burst of concurrent requests produces.</p>
+
+      <h2>The fix that does: a dedicated version counter</h2>
+      <p>A monotonic integer, incremented by the database itself as part of the same statement that reads the guard, has no precision ceiling to lose races to:</p>
+
+      <pre><code>-- migration: ALTER TABLE checks ADD COLUMN version INTEGER NOT NULL DEFAULT 1;
+
+const result = await DB.prepare(
+  `UPDATE checks SET name = ?, period_seconds = ?, grace_seconds = ?, webhook_url = ?,
+     updated_at = ?, version = version + 1
+   WHERE id = ? AND version = ?`
+).bind(parsed.name, parsed.period_seconds, parsed.grace_seconds, parsed.webhook_url,
+       now, id, existing.version).run();
+
+if (result.meta.changes === 0) {
+  return c.json({ error: 'check was modified concurrently, please retry' }, 409);
+}</code></pre>
+
+      <p>Whichever request's UPDATE commits first bumps <code>version</code> from, say, 3 to 4, and its own guard (<code>version = 3</code>) still matches at the moment it runs. The second request's guard also reads <code>version = 3</code> — but by the time its UPDATE executes, the row is already at 4, so the WHERE clause matches zero rows and D1 tells us so via <code>meta.changes === 0</code>. Instead of silently overwriting, the loser gets a 409 and knows to re-fetch and retry. No field is ever dropped without the caller finding out.</p>
+
+      <h2>The test: assert the winner's field, not just the status codes</h2>
+      <p>A test that only checks "one request got 200 and one got 409" would pass even if the fix silently merged the loser's change in wrong. The assertion that actually matters is that the row in the database after the dust settles matches what the winning request believes it wrote — not some blend of both:</p>
+
+      <pre><code>const [resA, resB] = await Promise.all([patchName(), patchWebhook()]);
+const succeeded = [resA, resB].filter(r => r.status === 200);
+const conflicted = [resA, resB].filter(r => r.status === 409);
+expect(succeeded.length).toBe(1);
+expect(conflicted.length).toBe(1);
+
+// Whichever request won, its field change must be visible — not lost
+// underneath the other request's stale merge.
+const finalCheck = await getCheck(id);
+const won = await succeeded[0].json();
+expect(finalCheck).toEqual(won.check);</code></pre>
+
+      <h2>The rule, restated once more</h2>
+      <p>Four fixes into this bug family now, the general definition holds up better than any specific pattern-match: <strong>any write whose correctness depends on a fact read in an earlier, separate statement needs that fact re-checked as part of the write itself.</strong> What's new this time is that "the fact" isn't a count or a status — it's "the whole row hasn't changed since I read it" — and that the obvious token for expressing that (a timestamp) can be too coarse-grained to actually work. When in doubt, an integer that only ever moves in one direction, incremented atomically by the guarded write, doesn't have that failure mode.</p>
+
+      <div class="blog-cta">
+        <p>Want to see the full fix and its concurrent-request test in context?</p>
+        <div class="hero-cta">
+          <a class="btn btn-primary" href="../../flatline/">View Flatline →</a>
+          <a class="btn btn-ghost" href="https://github.com/nagpalarpit/flatline" target="_blank" rel="noopener">Source on GitHub →</a>
+        </div>
+      </div>
+    </article>
+  </div>
+
+  <footer class="footer">
+    auto.company — also building <a href="../../snapog/">SnapOG</a>
+  </footer>
+</body>
+</html>

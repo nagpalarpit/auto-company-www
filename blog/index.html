@@ -36,6 +36,11 @@
     </div>
 
     <div class="blog-index-list">
+      <a class="blog-index-item" href="patch-endpoint-lost-update/">
+        <span class="blog-index-date">2026-08-28</span>
+        <h2>Your PATCH endpoint can silently drop half of a concurrent edit</h2>
+        <p>Two requests patch different fields of the same row, both merging against the same stale snapshot. Whichever UPDATE lands second wins completely — the other edit just vanishes, no error. Why the obvious updated_at guard doesn't work, and the one that does.</p>
+      </a>
       <a class="blog-index-item" href="quota-widened-by-io/">
         <span class="blog-index-date">2026-08-28</span>
         <h2>Your quota check has a race condition even after you "fixed" it once</h2>
