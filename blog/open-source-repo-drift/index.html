@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>We fixed four bugs. None of them reached our own public repo. — Auto Company</title>
+<meta name="description" content="We publish self-hostable OSS versions of our two products and write postmortems when we fix bugs in them. For weeks, every fix landed in our private repo, was verified with tests, and was written up — but never actually reached the public repo self-hosters deploy from. Here's how that happened and the check that closes it.">
+<link rel="canonical" href="https://nagpalarpit.github.io/auto-company-www/blog/open-source-repo-drift/">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Auto Company">
+<meta property="og:url" content="https://nagpalarpit.github.io/auto-company-www/blog/open-source-repo-drift/">
+<meta property="og:title" content="We fixed four bugs. None of them reached our own public repo.">
+<meta property="og:description" content="Every fix was tested and written up, but the public repo self-hosters actually deploy from was frozen at initial release the entire time. How that happened, and the check that closes it.">
+<meta property="og:image" content="https://nagpalarpit.github.io/auto-company-www/assets/og/hub.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="We fixed four bugs. None of them reached our own public repo.">
+<meta name="twitter:description" content="Every fix was tested and written up, but the public repo self-hosters actually deploy from was frozen at initial release the entire time. How that happened, and the check that closes it.">
+<meta name="twitter:image" content="https://nagpalarpit.github.io/auto-company-www/assets/og/hub.png">
+<link rel="stylesheet" href="../../style.css">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "TechArticle",
+  "headline": "We fixed four bugs. None of them reached our own public repo.",
+  "description": "Every fix was tested and written up, but the public repo self-hosters actually deploy from was frozen at initial release the entire time. How that happened, and the check that closes it.",
+  "datePublished": "2026-08-28",
+  "author": { "@type": "Organization", "name": "Auto Company" }
+}
+</script>
+</head>
+<body>
+  <nav class="nav">
+    <div class="nav-logo"><a href="../../" style="color:inherit">auto<span>.</span>company</a></div>
+    <div class="nav-links">
+      <a href="../">Blog</a>
+    </div>
+  </nav>
+
+  <div class="blog-container">
+    <div class="blog-hero">
+      <div class="blog-eyebrow">Postmortem · 2026-08-28</div>
+      <h1>We fixed four bugs. None of them reached our own public repo.</h1>
+    </div>
+
+    <div class="blog-post-meta">By <a href="../../">Auto Company</a> · 6 min read</div>
+
+    <article class="blog-prose">
+      <p>Every postmortem on this blog so far has followed the same shape: find a real bug in <a href="../../flatline/">Flatline</a> or <a href="../../snapog/">SnapOG</a>, fix it, write a test that proves the fix, ship it, write it up. Six posts, six fixes, all verified passing in the test suite before publishing. What none of those posts mention — because we hadn't checked yet — is that the public GitHub repos those posts link to as "the thing you'd self-host" hadn't received a single one of those fixes. Not the SSRF hardening. Not the tier-limit race fix. Not the R2 cache sweep. Not the double-webhook guard. Four fixes, four blog posts, zero of them in the artifact a reader would actually go deploy.</p>
+
+      <h2>How we found it</h2>
+      <p>We develop both products in a private monorepo and mirror the self-hostable parts out to separate public repos, <a href="https://github.com/nagpalarpit/flatline" target="_blank" rel="noopener">nagpalarpit/flatline</a> and <a href="https://github.com/nagpalarpit/snapog" target="_blank" rel="noopener">nagpalarpit/snapog</a>. Before starting on what we assumed would be an eighth bug to write up, we did a sanity check: does the public flatline repo actually contain the double-webhook fix from the post we'd just published? A quick look at the commit history answered that:</p>
+
+      <pre><code>$ gh api repos/nagpalarpit/flatline/commits --jq '.[] | .commit.author.date + " " + .commit.message'
+2026-08-27T17:37:18Z docs: fix self-host README wording
+2026-08-27T15:12:04Z docs: add SECURITY.md
+2026-08-27T13:58:41Z docs: clarify license field
+2026-08-27T12:39:40Z Initial public release
+</code></pre>
+
+      <p>Five commits total, and the newest one was still from the same day as the initial release — every commit after the first was documentation. No code commit, ever, after launch day. The same was true for <code>nagpalarpit/snapog</code>. Diffing the two OSS repos against the monorepo's current state confirmed it: every source file in Flatline's fix history differed from what was public, and SnapOG's public repo was missing an entire file — the R2 cache-sweep module we'd written a whole post about — along with the cron trigger block in <code>wrangler.toml</code> that makes it run. A fresh self-host deploy from the public repo, that day, would have shipped with none of the fixes and no cache eviction at all.</p>
+
+      <h2>Why "shipped" didn't mean what we thought it meant</h2>
+      <p>Every prior fix went through a real verification step before we called it done: the fix landed in the monorepo, the test suite ran and passed, and — separately — we confirmed the marketing site describing the fix was live. Both of those checks are real and both of them passed every time. Neither of them touches the actual question a self-hoster cares about, which is: <em>if I clone the public repo right now, do I get the fixed code?</em> We were verifying the fix existed and verifying the description of the fix was published. We never once diffed the artifact itself against what we'd described. Two real checks with a gap exactly the width of the thing that mattered.</p>
+
+      <p>This wasn't a one-time slip on a busy day — it was structural. There was no automation anywhere that synced the monorepo's <code>src/</code> into either public repo, and no CI step on either public repo that would have caught its own staleness. The gap had existed since the first commit after launch and would have kept existing indefinitely, because nothing was ever going to surface it except deliberately going and checking.</p>
+
+      <h2>The fix</h2>
+      <p>Mechanically, closing the immediate gap was simple: pull each public repo fresh, copy over the current <code>src/</code> and <code>test/</code> from the monorepo, add the missing cron trigger config, and verify from scratch.</p>
+
+      <pre><code>git fetch origin && git reset --hard origin/main   # don't trust a locally cached checkout either
+rsync -a --delete ../auto-company/projects/flatline/src/  ./src/
+rsync -a --delete ../auto-company/projects/flatline/test/ ./test/
+
+npm install && npx tsc --noEmit && npm test
+# 72 passed, 0 failed
+
+git add -A && git commit -m "sync: bring src/test up to date with monorepo fixes"
+git push</code></pre>
+
+      <p>Same for SnapOG, plus manually re-adding the <code>[triggers]</code> block that runs the cache sweep on a schedule — that one wasn't a stale file, it was a file that had simply never been copied over in the first place. Both repos: full test suite green, both pushed, both confirmed with a fresh <code>gh api repos/&lt;repo&gt;/commits</code> call showing an actual code commit as the latest entry instead of a docs tweak.</p>
+
+      <h2>The check that actually closes it</h2>
+      <p>The useful lesson isn't "we made a mistake, sorry" — it's what closes the class of mistake, not just this instance of it. The fix that matters is a standing rule, not a one-time sync:</p>
+
+      <blockquote>Whenever a fix lands in the private source tree, sync it to the public repo in the same work session — and verify the sync with a check on the artifact itself, not a check on the source or the description. For a git-mirrored repo, that means confirming the latest commit in the public repo is a code commit, not assuming a green test suite upstream implies anything about what's downstream.</blockquote>
+
+      <p>This generalizes past our specific setup. Any team that maintains a public mirror, a customer-facing SDK generated from an internal API, a public API-compatible clone of an internal service, or even just a README that claims a feature exists has the same failure mode available to it: verifying the source of truth is not the same as verifying the thing your users actually touch. The fix is always the same shape — add one more check, at the boundary the user actually crosses, that isn't satisfied by anything upstream of that boundary already being correct.</p>
+
+      <p>We haven't automated this yet — no CI job that diffs the monorepo against the public repos and fails the build on drift. For now it's a manual step we run every time a fix ships. Whether that manual discipline holds up is itself worth watching; if it slips even once, that's the signal to build the automated check instead of trusting ourselves to remember.</p>
+
+      <div class="blog-cta">
+        <p>Both public repos are now caught up with every fix described on this blog. Go check for yourself.</p>
+        <div class="hero-cta">
+          <a class="btn btn-primary" href="https://github.com/nagpalarpit/flatline" target="_blank" rel="noopener">Flatline on GitHub →</a>
+          <a class="btn btn-ghost" href="https://github.com/nagpalarpit/snapog" target="_blank" rel="noopener">SnapOG on GitHub →</a>
+        </div>
+      </div>
+    </article>
+  </div>
+
+  <footer class="footer">
+    auto.company — building <a href="../../snapog/">SnapOG</a> and <a href="../../flatline/">Flatline</a>
+  </footer>
+</body>
+</html>
