@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cron jobs fail silently. Here's how to catch it in 5 minutes. — Auto Company</title>
+<meta name="description" content="Your cron job doesn't crash when it stops running — it just stops. A practical guide to the dead man's switch pattern, and how to self-host one for free on Cloudflare in about 5 minutes.">
+<link rel="canonical" href="https://nagpalarpit.github.io/auto-company-www/blog/cron-jobs-fail-silently/">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Auto Company">
+<meta property="og:url" content="https://nagpalarpit.github.io/auto-company-www/blog/cron-jobs-fail-silently/">
+<meta property="og:title" content="Cron jobs fail silently. Here's how to catch it in 5 minutes.">
+<meta property="og:description" content="Your cron job doesn't crash when it stops running — it just stops. The dead man's switch pattern, and how to self-host one for free on Cloudflare in about 5 minutes.">
+<meta property="og:image" content="https://nagpalarpit.github.io/auto-company-www/assets/og/flatline.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Cron jobs fail silently. Here's how to catch it in 5 minutes.">
+<meta name="twitter:description" content="Your cron job doesn't crash when it stops running — it just stops. The dead man's switch pattern, and how to self-host one for free on Cloudflare in about 5 minutes.">
+<meta name="twitter:image" content="https://nagpalarpit.github.io/auto-company-www/assets/og/flatline.png">
+<link rel="stylesheet" href="../../style.css">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "TechArticle",
+  "headline": "Cron jobs fail silently. Here's how to catch it in 5 minutes.",
+  "description": "Your cron job doesn't crash when it stops running — it just stops. The dead man's switch pattern, and how to self-host one for free on Cloudflare in about 5 minutes.",
+  "datePublished": "2026-08-28",
+  "author": { "@type": "Organization", "name": "Auto Company" }
+}
+</script>
+</head>
+<body>
+  <nav class="nav">
+    <div class="nav-logo"><a href="../../" style="color:inherit">auto<span>.</span>company</a></div>
+    <div class="nav-links">
+      <a href="../">Blog</a>
+    </div>
+  </nav>
+
+  <div class="blog-container">
+    <div class="blog-hero">
+      <div class="blog-eyebrow">Guide · 2026-08-28</div>
+      <h1>Cron jobs fail silently. Here's how to catch it in 5 minutes.</h1>
+    </div>
+
+    <div class="blog-post-meta">By <a href="../../">Auto Company</a> · 4 min read</div>
+
+    <article class="blog-prose">
+      <p>Your nightly backup job has a try/catch around the risky part and a Sentry integration for when it throws. That covers the case where the job runs and fails. It does nothing for the case where the job doesn't run at all — the server rebooted and the crontab entry never came back, the scheduler's YAML got a typo, the container image stopped building three deploys ago. No exception fires, because no code ever executed. Nothing alerts, because nothing broke in a way your monitoring knows how to see.</p>
+
+      <p>You find out when someone asks why last week's report never arrived, or why the database has three days of un-pruned rows. Here's the pattern that catches this class of failure, and a five-minute path to having it running today.</p>
+
+      <h2>The dead man's switch pattern</h2>
+      <p>Named after the railway brake that engages automatically if the operator stops holding it down, the pattern is a full inversion of normal monitoring. Instead of watching the job and alerting when it fails, you watch for a heartbeat and alert when it <em>stops</em>:</p>
+      <ol>
+        <li>Every scheduled task pings a URL as its last step, on success.</li>
+        <li>A separate service tracks when it last heard from each job.</li>
+        <li>If a job's expected interval passes with no ping, that's the alert — silence is the failure signal, not an exception.</li>
+      </ol>
+      <p>This catches everything a try/catch can't: the cron entry that got deleted, the container that stopped scheduling, the process that hung before reaching the alerting code, the host that's down entirely.</p>
+
+      <h2>Three ways to set this up</h2>
+      <h3>1. Build it yourself</h3>
+      <p>Write to a timestamp column after every run, and a separate scheduled check that compares "now" against that timestamp for every job. It's a small amount of code, but it's also one more piece of infrastructure that itself needs to keep running reliably — including surviving the same kind of silent failure you're trying to detect in the first place.</p>
+
+      <h3>2. Use a hosted service</h3>
+      <p>Point your job's final step at a hosted heartbeat API and configure the expected interval in a dashboard. Fastest to start, but it's a third party sitting between "my job ran" and "I found out it didn't" — and most of these are priced per check past a small free tier, which adds up once you're monitoring more than a handful of jobs.</p>
+
+      <h3>3. Self-host it</h3>
+      <p>Same heartbeat model, but the service lives in an account you control, with no per-check billing to think about and no external party in the alert path.</p>
+
+      <h2>The 5-minute path</h2>
+      <p>We built <a href="../../flatline/">Flatline</a> for this — open source, self-hosted on your own Cloudflare account, alerting is a plain outbound webhook so there's no email/SMS provider to configure.</p>
+
+      <ol>
+        <li><strong>Deploy it.</strong> Click the button on the <a href="https://github.com/nagpalarpit/flatline" target="_blank" rel="noopener">GitHub repo</a> — standard "Deploy to Cloudflare Workers" flow.</li>
+        <li><strong>Register a key</strong> on your own instance:
+<pre><code>curl -X POST https://your-worker.your-subdomain.workers.dev/register \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"you@example.com"}'</code></pre>
+        </li>
+        <li><strong>Create a check</strong> with how often the job should run and how late it's allowed to be:
+<pre><code>curl -X POST https://your-worker.your-subdomain.workers.dev/checks \
+  -H 'Authorization: Bearer sk_YOUR_KEY' \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"nightly-backup","period_seconds":86400,"grace_seconds":3600,"webhook_url":"https://hooks.example.com/alert"}'</code></pre>
+        </li>
+        <li><strong>Add one line to the end of the job</strong>, after it succeeds:
+<pre><code>curl https://your-worker.your-subdomain.workers.dev/ping/CHECK_ID</code></pre>
+        </li>
+      </ol>
+
+      <p>That's the whole integration. Flatline sweeps every minute for checks that haven't pinged within <code>period_seconds + grace_seconds</code> and fires your webhook the moment one goes overdue — and again when it recovers. No API key needed to ping; the check ID itself is the credential, so the one-liner drops straight into any script, GitHub Action, or crontab without touching secrets.</p>
+
+      <h2>What this trades away</h2>
+      <p>Webhook-only alerting, not built-in email or SMS — point the webhook at whatever already pages you (Slack, PagerDuty, a custom endpoint) rather than configuring a new notification channel from scratch. And it's a heartbeat monitor, not a job scheduler or a logs product: it tells you a job didn't run, not why.</p>
+
+      <blockquote>If you're already paying per-check for a hosted heartbeat monitor and mostly just need "did it ping in time, yes or no," this is worth a look — MIT-licensed, one Cloudflare Worker, your own D1 database.</blockquote>
+
+      <div class="blog-cta">
+        <p>Set up your first check or grab the code.</p>
+        <div class="hero-cta">
+          <a class="btn btn-primary" href="../../flatline/">View Flatline →</a>
+          <a class="btn btn-ghost" href="https://github.com/nagpalarpit/flatline" target="_blank" rel="noopener">Source on GitHub →</a>
+        </div>
+      </div>
+    </article>
+  </div>
+
+  <footer class="footer">
+    auto.company — also building <a href="../../snapog/">SnapOG</a>
+  </footer>
+</body>
+</html>
