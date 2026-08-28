@@ -80,4 +80,9 @@
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
   </url>
+  <url>
+    <loc>https://nagpalarpit.github.io/auto-company-www/blog/wrangler-deploy-paths-nobody-runs/</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+  </url>
 </urlset>

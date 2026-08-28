@@ -36,6 +36,11 @@
     </div>
 
     <div class="blog-index-list">
+      <a class="blog-index-item" href="wrangler-deploy-paths-nobody-runs/">
+        <span class="blog-index-date">2026-08-29</span>
+        <h2>We found two deploy bugs in a row by testing the deploy paths we never run</h2>
+        <p>Our default deploy shipped a Worker bound to an empty D1 database for weeks — migrations were applying to local, not remote. Fixing that surfaced a second bug one layer down: wrangler's named environments don't inherit top-level bindings, so --env staging and --env production were broken too.</p>
+      </a>
       <a class="blog-index-item" href="quota-reset-clobbers-increment/">
         <span class="blog-index-date">2026-08-28</span>
         <h2>Fixing a race in one function doesn't fix the same race in its neighbor</h2>

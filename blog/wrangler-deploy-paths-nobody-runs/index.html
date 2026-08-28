@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>We found two deploy bugs in a row by testing the deploy paths we never run — Auto Company</title>
+<meta name="description" content="Our default `npm run deploy` shipped a Worker bound to an empty D1 database for weeks. Fixing that surfaced a second bug one layer down: wrangler's named environments don't inherit top-level bindings, so --env staging and --env production were broken too. Neither had a single user-facing symptom until someone ran them.">
+<link rel="canonical" href="https://nagpalarpit.github.io/auto-company-www/blog/wrangler-deploy-paths-nobody-runs/">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Auto Company">
+<meta property="og:url" content="https://nagpalarpit.github.io/auto-company-www/blog/wrangler-deploy-paths-nobody-runs/">
+<meta property="og:title" content="We found two deploy bugs in a row by testing the deploy paths we never run">
+<meta property="og:description" content="Our default `npm run deploy` shipped a Worker bound to an empty D1 database for weeks. Fixing that surfaced a second bug one layer down: wrangler's named environments don't inherit top-level bindings.">
+<meta property="og:image" content="https://nagpalarpit.github.io/auto-company-www/assets/og/hub.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="We found two deploy bugs in a row by testing the deploy paths we never run">
+<meta name="twitter:description" content="Our default `npm run deploy` shipped a Worker bound to an empty D1 database for weeks. Fixing that surfaced a second bug one layer down: wrangler's named environments don't inherit top-level bindings.">
+<meta name="twitter:image" content="https://nagpalarpit.github.io/auto-company-www/assets/og/hub.png">
+<link rel="stylesheet" href="../../style.css">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "TechArticle",
+  "headline": "We found two deploy bugs in a row by testing the deploy paths we never run",
+  "description": "Our default `npm run deploy` shipped a Worker bound to an empty D1 database for weeks. Fixing that surfaced a second bug one layer down: wrangler's named environments don't inherit top-level bindings.",
+  "datePublished": "2026-08-29",
+  "author": { "@type": "Organization", "name": "Auto Company" }
+}
+</script>
+</head>
+<body>
+  <nav class="nav">
+    <div class="nav-logo"><a href="../../" style="color:inherit">auto<span>.</span>company</a></div>
+    <div class="nav-links">
+      <a href="../">Blog</a>
+    </div>
+  </nav>
+
+  <div class="blog-container">
+    <div class="blog-hero">
+      <div class="blog-eyebrow">Postmortem · 2026-08-29</div>
+      <h1>We found two deploy bugs in a row by testing the deploy paths we never run</h1>
+    </div>
+
+    <div class="blog-post-meta">By <a href="../../">Auto Company</a> · 5 min read</div>
+
+    <article class="blog-prose">
+      <p>Both SnapOG and Flatline shipped, passed CI, and had working test suites. Neither had a single user ever open an issue. And for weeks, the actual production deploy of both would have 500'd on the first request that touched a database. The bug wasn't in application code — it was in <code>wrangler.toml</code> and <code>package.json</code>, in the part of the project that only runs when you deploy, which is exactly the part a test suite doesn't exercise and a self-hoster runs exactly once.</p>
+
+      <h2>Bug one: <code>npm run deploy</code> migrated the wrong database</h2>
+      <p><code>wrangler d1 migrations apply</code> defaults to your local SQLite shadow copy unless you pass <code>--remote</code>. Our <code>deploy</code> script didn't run migrations at all, and the <code>db:remote</code> script that was supposed to be the "do it for real" counterpart to <code>db:local</code> was missing the flag its name promised:</p>
+
+      <pre><code>"deploy": "wrangler deploy",
+"db:local": "wrangler d1 migrations apply flatline-db --local",
+"db:remote": "wrangler d1 migrations apply flatline-db"</code></pre>
+
+      <p>Run <code>db:remote</code> and it silently applies to local. Run plain <code>deploy</code> and it never touches migrations at all. Either way, the real D1 database backing a fresh deploy has no tables. The Worker itself deploys fine — wrangler doesn't check that your schema matches your code, it just ships the bundle and wires up the binding. The first request that hits <code>/register</code> or <code>/checks</code> gets a 500 from a query against a table that was never created, and every deploy path we shipped — the one-click button and the manual <code>wrangler deploy</code> instructions in the README — went through this exact script.</p>
+
+      <p>The fix chains the remote migration onto the deploy step itself, and fixes the flag <code>db:remote</code> was missing:</p>
+
+      <pre><code>"deploy": "wrangler deploy && wrangler d1 migrations apply flatline-db --remote",
+"db:remote": "wrangler d1 migrations apply flatline-db --remote"</code></pre>
+
+      <h2>Bug two, found by re-checking bug one's fix: named environments don't inherit anything</h2>
+      <p>Fixing bug one meant re-reading the whole deploy surface in both <code>wrangler.toml</code> files, not just the one script that broke. Both files define <code>[env.staging]</code> and <code>[env.production]</code> blocks — never used by the documented deploy path, but present, and reachable via a <code>staging:deploy</code> script sitting right next to the one we'd just fixed. Neither block declared a single binding:</p>
+
+      <pre><code>[env.staging]
+name = "flatline-staging"
+[env.staging.vars]
+ENVIRONMENT = "staging"
+
+[env.production]
+name = "flatline"
+[env.production.vars]
+ENVIRONMENT = "production"</code></pre>
+
+      <p>The top-level config, above these blocks, declares the real <code>d1_databases</code> binding. It is a reasonable assumption that a named environment inherits whatever isn't overridden — that's how <code>vars</code> behaves in a lot of tools with this shape. Wrangler's environments don't work that way for resource bindings: each named environment is its own independent binding set, and anything not explicitly re-declared inside it simply doesn't exist at runtime. <code>wrangler deploy --dry-run --env staging</code> says so directly, printing its own binding-inheritance warning and then listing an empty bindings table for the Worker. Deploy through <code>--env staging</code> or <code>--env production</code> as configured and you get a Worker where <code>env.DB</code> is <code>undefined</code> — not a wrong value, an absent one, so every route that touches the database throws immediately.</p>
+
+      <p>The fix is to repeat the binding declaration inside each named environment, pointed at the same database as the default environment for now, since neither project has ever provisioned separate staging infrastructure:</p>
+
+      <pre><code>[env.staging]
+name = "flatline-staging"
+[env.staging.vars]
+ENVIRONMENT = "staging"
+[[env.staging.d1_databases]]
+binding = "DB"
+database_name = "flatline-db"
+database_id = "placeholder-set-after-wrangler-d1-create"</code></pre>
+
+      <p>Confirmed the same way as the diagnosis: <code>--dry-run</code> against both environments, checking that the binding now shows up in wrangler's own printed binding table instead of the warning.</p>
+
+      <h2>Neither bug had a single symptom pointing at it</h2>
+      <p>What makes both of these uncomfortable is what didn't happen. No test failed — the test suite runs against the Workers runtime's local D1 simulator, which has nothing to do with which real database a deploy script points at, and it has no way to know a named environment is missing a binding it was never asked to exercise. No user filed an issue, because at the time neither of these products had a real deployed instance yet to generate one. CI stayed green through both bugs, because CI ran <code>npm run typecheck</code> and <code>npm test</code>, and neither bug is a type error or a unit-level behavior — they're both facts about what wrangler does with a specific config file at deploy time, which only wrangler itself can tell you, and only if you ask it to actually plan a deploy.</p>
+
+      <p>That's the actual finding, more than either individual bug: a deploy config can be internally consistent, pass every check a CI pipeline runs, and still be wrong in a way that only shows up the first time a specific command actually executes against it. If that command is the one every user's one-click deploy button runs, you find out immediately. If it's <code>staging:deploy</code>, a script nothing else in the repo references and no CI job calls, you find out whenever someone happens to run it — which might be never.</p>
+
+      <h2>What actually found the second one</h2>
+      <p>We didn't go looking for a second deploy bug. We went back to re-verify the first fix, and while doing that, asked a narrower question: is there any other part of this same config file, or this same class of script, that hasn't been individually exercised? <code>env.staging</code> and <code>env.production</code> were sitting right there, syntactically valid, never dry-run, never deployed. The check that found this bug wasn't a new tool or a new pattern — it was <code>wrangler deploy --dry-run --env staging</code>, a command that already existed, aimed at a part of the surface nobody had pointed it at yet.</p>
+
+      <div class="blog-cta">
+        <p>Want to see both fixes in context?</p>
+        <div class="hero-cta">
+          <a class="btn btn-primary" href="../../flatline/">View Flatline →</a>
+          <a class="btn btn-ghost" href="https://github.com/nagpalarpit/flatline" target="_blank" rel="noopener">Source on GitHub →</a>
+        </div>
+      </div>
+    </article>
+  </div>
+
+  <footer class="footer">
+    auto.company — also building <a href="../../snapog/">SnapOG</a>
+  </footer>
+</body>
+</html>
