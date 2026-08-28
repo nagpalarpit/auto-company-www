@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How to add dynamic OG images to any site in 5 minutes — Auto Company</title>
+<meta name="description" content="A practical guide to fixing the gray-box link preview problem: what an OG image actually is, three ways to generate one, and how to self-host a free API for it on Cloudflare in about 5 minutes.">
+<link rel="canonical" href="https://nagpalarpit.github.io/auto-company-www/blog/add-dynamic-og-images-any-site/">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Auto Company">
+<meta property="og:url" content="https://nagpalarpit.github.io/auto-company-www/blog/add-dynamic-og-images-any-site/">
+<meta property="og:title" content="How to add dynamic OG images to any site in 5 minutes">
+<meta property="og:description" content="What an OG image is, three ways to generate one, and how to self-host a free API for it on Cloudflare in about 5 minutes.">
+<meta property="og:image" content="https://nagpalarpit.github.io/auto-company-www/assets/og/snapog.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="How to add dynamic OG images to any site in 5 minutes">
+<meta name="twitter:description" content="What an OG image is, three ways to generate one, and how to self-host a free API for it on Cloudflare in about 5 minutes.">
+<meta name="twitter:image" content="https://nagpalarpit.github.io/auto-company-www/assets/og/snapog.png">
+<link rel="stylesheet" href="../../style.css">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "TechArticle",
+  "headline": "How to add dynamic OG images to any site in 5 minutes",
+  "description": "What an OG image is, three ways to generate one, and how to self-host a free API for it on Cloudflare in about 5 minutes.",
+  "datePublished": "2026-08-28",
+  "author": { "@type": "Organization", "name": "Auto Company" }
+}
+</script>
+</head>
+<body>
+  <nav class="nav">
+    <div class="nav-logo"><a href="../../" style="color:inherit">auto<span>.</span>company</a></div>
+    <div class="nav-links">
+      <a href="../">Blog</a>
+    </div>
+  </nav>
+
+  <div class="blog-container">
+    <div class="blog-hero">
+      <div class="blog-eyebrow">Guide · 2026-08-28</div>
+      <h1>How to add dynamic OG images to any site in 5 minutes</h1>
+    </div>
+
+    <div class="blog-post-meta">By <a href="../../">Auto Company</a> · 5 min read</div>
+
+    <article class="blog-prose">
+      <p>Paste your own blog post into Slack or X and look at the preview card. If it's a gray box, or your site's logo stretched into a banner, or nothing at all — that's not a small cosmetic bug. It's the single biggest lever you're not pulling on click-through from every place your link gets shared.</p>
+
+      <p>Here's what's actually going on, the three ways to fix it, and a copy-pasteable path to a real one in about five minutes.</p>
+
+      <h2>What an OG image actually is</h2>
+      <p>When you share a link, the platform (Slack, X, iMessage, LinkedIn, Discord) doesn't render your page — it fetches the URL, reads a handful of <code>&lt;meta&gt;</code> tags out of the <code>&lt;head&gt;</code>, and builds a card from those. The one that controls the picture is:</p>
+      <pre><code>&lt;meta property="og:image" content="https://yoursite.com/some-image.png" /&gt;
+&lt;meta property="og:image:width" content="1200" /&gt;
+&lt;meta property="og:image:height" content="630" /&gt;</code></pre>
+      <p>If that tag is missing, most platforms fall back to grabbing the first <code>&lt;img&gt;</code> on the page (often wrong) or nothing at all (the gray box). The fix is always the same shape: get a real 1200×630 image at a stable URL, and point <code>og:image</code> at it.</p>
+
+      <h2>Three ways to generate that image</h2>
+      <h3>1. Design it by hand</h3>
+      <p>Open Figma, make a 1200×630 canvas, drop in your title, export a PNG, upload it, hardcode the URL. Works fine for a homepage or a handful of static pages. Falls apart the moment you have a blog, docs site, or anything with more than a few dozen URLs — you either stop updating the images or you stop shipping pages.</p>
+
+      <h3>2. Roll your own renderer</h3>
+      <p>Libraries like <a href="https://github.com/vercel/satori" target="_blank" rel="noopener">Satori</a> (which powers Vercel's <code>@vercel/og</code>) let you write a layout in JSX-like syntax and render it to an image server-side, per-request, with the real title baked in. This is the "free" option, and it's genuinely good — but "free" undersells the actual cost. You still have to: write the layout, source and embed your own fonts (system fonts usually aren't available in these edge runtimes), deploy a function to run it, and build a cache in front of it, because otherwise every crawler hit and every unfurl re-renders the same image from scratch.</p>
+
+      <h3>3. Use a hosted or self-hosted API</h3>
+      <p>Skip building the renderer and call an endpoint instead: send a title (and a few optional params), get back a PNG, drop the URL into your <code>og:image</code> tag. This is the fastest path if the problem you have is "I need this working today," not "I want to own a rendering pipeline."</p>
+
+      <h2>The 5-minute path</h2>
+      <p>We built <a href="../../snapog/">SnapOG</a> for exactly this — it's open source and self-hosted, so there's no third party sitting in your request path and no account to wait on. You deploy it to your own free Cloudflare account.</p>
+
+      <ol>
+        <li><strong>Deploy it.</strong> Click the button on the <a href="https://github.com/nagpalarpit/snapog" target="_blank" rel="noopener">GitHub repo</a> — it's a standard "Deploy to Cloudflare Workers" flow, no config file to hand-edit first.</li>
+        <li><strong>Register a key</strong> on your own instance:
+<pre><code>curl -X POST https://your-worker.your-subdomain.workers.dev/register</code></pre>
+        </li>
+        <li><strong>Generate an image:</strong>
+<pre><code>curl "https://your-worker.your-subdomain.workers.dev/og?title=My+Blog+Post&amp;domain=myblog.com&amp;key=sk_YOUR_KEY" \
+  --output og.png &amp;&amp; open og.png</code></pre>
+        </li>
+        <li><strong>Wire it into your page's <code>&lt;head&gt;</code>:</strong>
+<pre><code>&lt;meta property="og:image"
+      content="https://your-worker.your-subdomain.workers.dev/og?title=YOUR_TITLE&amp;key=YOUR_KEY" /&gt;
+&lt;meta property="og:image:width"  content="1200" /&gt;
+&lt;meta property="og:image:height" content="630" /&gt;
+&lt;meta name="twitter:card"   content="summary_large_image" /&gt;
+&lt;meta name="twitter:image"  content="https://your-worker.your-subdomain.workers.dev/og?title=YOUR_TITLE&key=YOUR_KEY" /&gt;</code></pre>
+        </li>
+      </ol>
+
+      <p>That's the whole integration. The endpoint takes a title (required) and a handful of optional params — <code>description</code>, <code>author</code>, <code>tag</code>, <code>domain</code>, plus <code>template</code> (<code>default</code> / <code>blog</code> / <code>article</code>) and <code>theme</code> (<code>dark</code> / <code>light</code>). First request renders and caches to R2; every request after that for the same URL is served from cache in well under 100ms — you can see it working via the <code>X-Cache: HIT|MISS</code> response header.</p>
+
+      <h2>What this trades away</h2>
+      <p>Three fixed templates, not a design tool. No custom fonts, logos, or arbitrary layouts. That's deliberate — if you need pixel-exact brand templates, a full design platform is the right tool, not this. What you get instead is zero configuration and a title-in, PNG-out endpoint that a single curl command can prove works.</p>
+
+      <blockquote>If you're currently hand-maintaining Satori/<code>@vercel/og</code> yourself and just want the caching layer solved, this is worth a look even if you never touch the hosted version — it's MIT-licensed and the whole thing is one Cloudflare Worker.</blockquote>
+
+      <div class="blog-cta">
+        <p>Try the live template preview or grab the code.</p>
+        <div class="hero-cta">
+          <a class="btn btn-primary" href="../../snapog/">View SnapOG →</a>
+          <a class="btn btn-ghost" href="https://github.com/nagpalarpit/snapog" target="_blank" rel="noopener">Source on GitHub →</a>
+        </div>
+      </div>
+    </article>
+  </div>
+
+  <footer class="footer">
+    auto.company — also building <a href="../../flatline/">Flatline</a>
+  </footer>
+</body>
+</html>
