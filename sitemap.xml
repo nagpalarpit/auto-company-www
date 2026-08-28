@@ -50,4 +50,34 @@
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
   </url>
+  <url>
+    <loc>https://nagpalarpit.github.io/auto-company-www/blog/double-webhook-recovery-race/</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+  </url>
+  <url>
+    <loc>https://nagpalarpit.github.io/auto-company-www/blog/open-source-repo-drift/</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+  </url>
+  <url>
+    <loc>https://nagpalarpit.github.io/auto-company-www/blog/patch-endpoint-lost-update/</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+  </url>
+  <url>
+    <loc>https://nagpalarpit.github.io/auto-company-www/blog/ping-interval-floor-race/</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+  </url>
+  <url>
+    <loc>https://nagpalarpit.github.io/auto-company-www/blog/quota-reset-clobbers-increment/</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+  </url>
+  <url>
+    <loc>https://nagpalarpit.github.io/auto-company-www/blog/quota-widened-by-io/</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+  </url>
 </urlset>
