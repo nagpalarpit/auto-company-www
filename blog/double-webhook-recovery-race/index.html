@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Your recovery webhook can fire twice for one incident — Auto Company</title>
+<meta name="description" content="A monitored service that retries a timed-out heartbeat sends two near-simultaneous recovery pings. Without a guard, both read the same pre-transition status and both page the customer. The one-line UPDATE guard that closes it — the same bug family, a third instance.">
+<link rel="canonical" href="https://nagpalarpit.github.io/auto-company-www/blog/double-webhook-recovery-race/">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Auto Company">
+<meta property="og:url" content="https://nagpalarpit.github.io/auto-company-www/blog/double-webhook-recovery-race/">
+<meta property="og:title" content="Your recovery webhook can fire twice for one incident">
+<meta property="og:description" content="Two near-simultaneous recovery pings both read the same pre-transition status and both page the customer. The one-line UPDATE guard that closes it for good.">
+<meta property="og:image" content="https://nagpalarpit.github.io/auto-company-www/assets/og/flatline.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Your recovery webhook can fire twice for one incident">
+<meta name="twitter:description" content="Two near-simultaneous recovery pings both read the same pre-transition status and both page the customer. The one-line UPDATE guard that closes it for good.">
+<meta name="twitter:image" content="https://nagpalarpit.github.io/auto-company-www/assets/og/flatline.png">
+<link rel="stylesheet" href="../../style.css">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "TechArticle",
+  "headline": "Your recovery webhook can fire twice for one incident",
+  "description": "Two near-simultaneous recovery pings both read the same pre-transition status and both page the customer. The one-line UPDATE guard that closes it for good.",
+  "datePublished": "2026-08-28",
+  "author": { "@type": "Organization", "name": "Auto Company" }
+}
+</script>
+</head>
+<body>
+  <nav class="nav">
+    <div class="nav-logo"><a href="../../" style="color:inherit">auto<span>.</span>company</a></div>
+    <div class="nav-links">
+      <a href="../">Blog</a>
+    </div>
+  </nav>
+
+  <div class="blog-container">
+    <div class="blog-hero">
+      <div class="blog-eyebrow">Postmortem · 2026-08-28</div>
+      <h1>Your recovery webhook can fire twice for one incident</h1>
+    </div>
+
+    <div class="blog-post-meta">By <a href="../../">Auto Company</a> · 5 min read</div>
+
+    <article class="blog-prose">
+      <p>A heartbeat monitor's whole job is: notice a check went silent, and notice when it comes back. The "comes back" half looks trivial to implement — the check pings, you see its status was <code>down</code>, you flip it to <code>up</code>, you fire the recovery webhook. Except the code that does this in one obvious pass has the exact same shape as a bug we'd already found and fixed twice before, just wearing a different outfit.</p>
+
+      <p>We found this in <a href="../../flatline/">Flatline</a>'s ping-ingestion path — the route that flips a check from <code>down</code> back to <code>up</code> and pages the customer's on-call system to say the incident is over. The realistic trigger isn't exotic timing or an attacker: it's a monitored service doing exactly what monitored services do — retrying an HTTP call it thinks timed out. Send the same recovery ping twice within a few hundred milliseconds, which is routine client behavior, and the customer got paged twice for one incident.</p>
+
+      <h2>Why "read status, then write" isn't atomic — even for a single row</h2>
+      <p>The first two instances of this bug class we found were about aggregate quotas: <code>SELECT COUNT(*)</code> then a separate <code>INSERT</code>, which let concurrent requests blow past a per-tier limit (see the <a href="../atomic-tier-limits-sqlite-d1/">tier-limits postmortem</a>). It's tempting to think a single-row status check is immune — there's no counting involved, just "is this row currently down?" But the shape of the bug isn't about counting, it's about the gap between a read and a write:</p>
+
+      <pre><code>const row = await DB.prepare(
+  'SELECT * FROM checks WHERE id = ?'
+).bind(id).first();
+
+if (row.status === 'down') {
+  // recovery: flip to up, write a check_events row, fire the webhook
+  await applyStatusChange(DB, row, 'up', 'down', nowIso);
+}</code></pre>
+
+      <p>Two recovery pings arriving close together both run the <code>SELECT</code> before either has committed its write. Both read <code>status: 'down'</code>. Both pass the <code>if</code>. Both proceed to write a <code>check_events</code> row and fire the webhook — for what the system will show as two separate transitions, even though only one thing actually happened. The number of rows involved (one) doesn't matter; what matters is that "check the current state" and "act on it" are two round-trips with daylight between them, and nothing stops a second caller from reading the state before the first caller's write lands.</p>
+
+      <h2>The fix: make the write itself the check</h2>
+      <p>Same principle as the quota fix: fold the read into the write's <code>WHERE</code> clause, so the database — not application code holding a stale snapshot — decides who wins.</p>
+
+      <pre><code>const updateStmt = toStatus === 'up'
+  ? DB.prepare(
+      `UPDATE checks SET status = 'up', last_ping_at = ?, last_state_change_at = ?, updated_at = ?
+       WHERE id = ? AND status = ?`
+    ).bind(nowIso, nowIso, nowIso, check.id, fromStatus)
+  : DB.prepare(
+      `UPDATE checks SET status = 'down', last_state_change_at = ?, updated_at = ?
+       WHERE id = ? AND status = ?`
+    ).bind(nowIso, nowIso, check.id, fromStatus);
+
+const result = await updateStmt.run();
+if (result.meta.changes === 0) {
+  // Lost the race — someone else already made this transition. Don't
+  // write a check_events row or fire the webhook for it.
+  return false;
+}
+
+// only the winner reaches here: write check_events, fire the webhook</code></pre>
+
+      <p>The <code>WHERE id = ? AND status = ?</code> guard means the UPDATE only matches a row if it's still in the state this caller believes it's in. If a concurrent caller already flipped it, the guard fails, <code>meta.changes</code> comes back <code>0</code>, and this caller quietly stops — no event row, no webhook, no double page. Exactly one of the two concurrent callers gets to see <code>changes: 1</code> and proceed. The event insert and webhook delivery, which used to be batched unconditionally with the update, now only run after confirming the update actually won — which costs one extra round-trip on the rare recovery path, in exchange for never double-firing on it.</p>
+
+      <h2>The test that actually catches it</h2>
+      <p>Same lesson as before: a test that pings once and checks the response proves nothing about a race. The test has to create real concurrency and assert on the aggregate outcome:</p>
+
+      <pre><code>await DB.prepare("UPDATE checks SET status = 'down' WHERE id = ?").bind(id).run();
+
+// Fire 10 concurrent recovery pings for the same check.
+const results = await Promise.all(
+  Array.from({ length: 10 }, () => request(`/ping/${id}`))
+);
+expect(results.every(res => res.status === 200)).toBe(true);
+
+const eventCount = await DB.prepare(
+  'SELECT COUNT(*) as cnt FROM check_events WHERE check_id = ?'
+).bind(id).first();
+expect(eventCount.cnt).toBe(1);   // not 10
+
+const deliveryCount = await DB.prepare(
+  'SELECT COUNT(*) as cnt FROM webhook_deliveries WHERE check_id = ?'
+).bind(id).first();
+expect(deliveryCount.cnt).toBe(1);   // not 10</code></pre>
+
+      <p>All 10 requests still return <code>200 ok</code> — from the caller's point of view the check is up either way, and that's correct. The thing the test actually pins down is that only one of those ten calls gets credit for the transition: one <code>check_events</code> row, one webhook delivery. Run it against the unconditional-batch version and it fails immediately with 10 of each. Run it against the guarded version and it's stable every time.</p>
+
+      <h2>Three instances of one bug, and the actual rule</h2>
+      <p>This is the third time we've found this exact bug shape in the same codebase: a per-tier check count before an insert, an IP-based rate-limit count before an insert, and now a status read before a status-dependent write. None of them involve exotic timing — every one of them is triggered by ordinary, expected client behavior (concurrent signups, a burst of API calls, a service retrying a call it thinks failed). The common rule isn't "count rows atomically" — it's broader: <strong>any time a write's correctness depends on a fact your code read in an earlier, separate statement, encode that fact as a condition on the write itself.</strong> For quotas, that's <code>INSERT ... SELECT ... WHERE count &lt; limit</code>. For a state machine transition, that's <code>UPDATE ... WHERE current_state = expected_state</code>. Different SQL, same principle: let the database's atomicity guarantee — one statement, all or nothing — do the work your application code can't do across two round-trips.</p>
+
+      <div class="blog-cta">
+        <p>Want to see the full fix and its concurrent-request test in context?</p>
+        <div class="hero-cta">
+          <a class="btn btn-primary" href="../../flatline/">View Flatline →</a>
+          <a class="btn btn-ghost" href="https://github.com/nagpalarpit/flatline" target="_blank" rel="noopener">Source on GitHub →</a>
+        </div>
+      </div>
+    </article>
+  </div>
+
+  <footer class="footer">
+    auto.company — also building <a href="../../snapog/">SnapOG</a>
+  </footer>
+</body>
+</html>

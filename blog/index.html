@@ -36,6 +36,11 @@
     </div>
 
     <div class="blog-index-list">
+      <a class="blog-index-item" href="double-webhook-recovery-race/">
+        <span class="blog-index-date">2026-08-28</span>
+        <h2>Your recovery webhook can fire twice for one incident</h2>
+        <p>A monitored service retrying a timed-out heartbeat sends two near-simultaneous recovery pings. Without a guard, both read the same pre-transition status and both page the customer. The one-line UPDATE guard that closes it — the same bug family, a third instance.</p>
+      </a>
       <a class="blog-index-item" href="unbounded-r2-cache-growth/">
         <span class="blog-index-date">2026-08-28</span>
         <h2>Your content-addressed cache has no eviction policy. It will grow forever.</h2>
