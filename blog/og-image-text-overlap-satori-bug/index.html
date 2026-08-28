@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Why your Satori-based OG images have overlapping text (and how to test for it) — Auto Company</title>
+<meta name="description" content="A real bug: an old pinned Satori/workers-og version rendered every two-line OG title as a stacked, unreadable mess. What causes it, how one dependency bump fixed it, and a pixel-diffing test that catches it for good.">
+<link rel="canonical" href="https://nagpalarpit.github.io/auto-company-www/blog/og-image-text-overlap-satori-bug/">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Auto Company">
+<meta property="og:url" content="https://nagpalarpit.github.io/auto-company-www/blog/og-image-text-overlap-satori-bug/">
+<meta property="og:title" content="Why your Satori-based OG images have overlapping text">
+<meta property="og:description" content="An old pinned Satori/workers-og version rendered every two-line OG title as a stacked, unreadable mess. The cause, the fix, and a pixel-diffing test that catches it for good.">
+<meta property="og:image" content="https://nagpalarpit.github.io/auto-company-www/assets/og/snapog.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Why your Satori-based OG images have overlapping text">
+<meta name="twitter:description" content="An old pinned Satori/workers-og version rendered every two-line OG title as a stacked, unreadable mess. The cause, the fix, and a pixel-diffing test that catches it for good.">
+<meta name="twitter:image" content="https://nagpalarpit.github.io/auto-company-www/assets/og/snapog.png">
+<link rel="stylesheet" href="../../style.css">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "TechArticle",
+  "headline": "Why your Satori-based OG images have overlapping text",
+  "description": "An old pinned Satori/workers-og version rendered every two-line OG title as a stacked, unreadable mess. The cause, the fix, and a pixel-diffing test that catches it for good.",
+  "datePublished": "2026-08-28",
+  "author": { "@type": "Organization", "name": "Auto Company" }
+}
+</script>
+</head>
+<body>
+  <nav class="nav">
+    <div class="nav-logo"><a href="../../" style="color:inherit">auto<span>.</span>company</a></div>
+    <div class="nav-links">
+      <a href="../">Blog</a>
+    </div>
+  </nav>
+
+  <div class="blog-container">
+    <div class="blog-hero">
+      <div class="blog-eyebrow">Postmortem · 2026-08-28</div>
+      <h1>Why your Satori-based OG images have overlapping text</h1>
+    </div>
+
+    <div class="blog-post-meta">By <a href="../../">Auto Company</a> · 6 min read</div>
+
+    <article class="blog-prose">
+      <p>We found this bug the boring way: generating real <code>og:image</code> assets for our own marketing pages. Every short title rendered fine. Every title long enough to wrap to a second line came back with both lines painted in the same place — a smeared, double-exposed mess sitting on top of each other. Not clipped, not truncated. Overlapping.</p>
+
+      <p>If you're rendering OG images with <a href="https://github.com/vercel/satori" target="_blank" rel="noopener">Satori</a> — directly, via <code>@vercel/og</code>, or via a Cloudflare-flavored wrapper like <a href="https://github.com/kvnang/workers-og" target="_blank" rel="noopener">workers-og</a> — and you've had this dependency pinned for a while, you may be shipping this right now without knowing it, because short titles hide it completely.</p>
+
+      <h2>Why it happens</h2>
+      <p>Satori's job is to take a flexbox-like layout tree and lay out text runs inside it, including wrapping a long string across multiple lines when it doesn't fit the available width. Line-wrapping in a from-scratch layout engine is genuinely hard: it has to measure glyph widths, decide break points, and — critically — advance the vertical cursor for each wrapped line so line 2 starts below line 1 instead of on top of it.</p>
+      <p>Early Satori versions had bugs in that vertical-advance step for wrapped text inside flex containers. The container's height was computed correctly, but each line's <code>y</code> offset wasn't, so every line rendered starting at the same baseline. Single-line text — which never triggers the wrap path — was completely unaffected, which is exactly why this kind of bug survives in production for so long: it only shows up on realistic content, not on the two-word placeholder title you tested with.</p>
+
+      <h2>The fix was one dependency bump</h2>
+      <p>We had <code>workers-og</code> pinned to <code>0.0.14</code>, which bundles a Satori build from around mid-2023. Bumping to <code>0.0.27</code> (bundling Satori 0.15.2) fixed the overlap immediately — no code changes, no layout tweaks, nothing to work around. The whole diff was a version bump in <code>package.json</code> and a regenerated lockfile.</p>
+      <p>The lesson isn't "upgrade your dependencies," which is too generic to act on. It's narrower: if your OG image renderer is built on Satori and you haven't touched the version in months, go generate an image with a genuinely long, realistic title today — not the short placeholder you built the template with. If you see stacked text, this is almost certainly why.</p>
+
+      <h2>The harder problem: making sure it doesn't come back</h2>
+      <p>A visual bug like this doesn't show up in a normal unit test — the render succeeds, returns a valid PNG, and every function-level assertion passes. You need to look at the pixels. Here's the technique we ended up with, adapted from our regression suite for <a href="../../snapog/">SnapOG</a>:</p>
+
+      <ol>
+        <li>Render the template with a title long enough to force a wrap, decode the output PNG.</li>
+        <li>Pick a narrow horizontal band (x-range) that contains title text but excludes chrome — accent bars, dividers, watermark — that would otherwise pollute the signal.</li>
+        <li>For every row in that x-range, check whether any pixel differs from the background color by more than a threshold. That gives you a boolean "this row has ink" for every row of the image.</li>
+        <li>Group consecutive ink rows into bands, allowing a 1-row gap for anti-aliasing.</li>
+      </ol>
+
+      <p>Two cleanly wrapped lines produce two distinct bands with real vertical space between them. The overlap bug collapses them into one band — or one band with no gap — because both lines are painted in the same rows. The assertion is just "count the bands, and check the gap between them," which is far more robust than pixel-exact snapshot comparison (which breaks on every font hinting or anti-aliasing change across environments).</p>
+
+      <pre><code>function groupRowsIntoBands(rowHasInk: boolean[]): InkBand[] {
+  const bands: InkBand[] = [];
+  let current: InkBand | null = null;
+  let gapRun = 0;
+
+  for (let row = 0; row &lt; rowHasInk.length; row++) {
+    if (rowHasInk[row]) {
+      current = current ?? { startRow: row, endRow: row };
+      current.endRow = row;
+      gapRun = 0;
+    } else if (current !== null) {
+      gapRun++;
+      if (gapRun &gt; 1) {
+        bands.push(current);
+        current = null;
+      }
+    }
+  }
+  if (current !== null) bands.push(current);
+  return bands;
+}</code></pre>
+
+      <p>This isn't SnapOG-specific — the technique works for any image-rendering pipeline where "did two things visually overlap" is the property under test and pixel-perfect snapshots are too brittle to maintain. Decode real pixels, reduce to a 1D signal along the axis you care about, assert on the shape of that signal instead of the raw bytes.</p>
+
+      <h2>Where we ended up</h2>
+      <p>Every OG template in <a href="../../snapog/">SnapOG</a> — including the two-line title/description layouts — now has a pixel-content regression test using this method, so a future Satori upgrade (or a template change) that reintroduces overlapping text fails CI instead of shipping silently to production. If you're maintaining your own Satori-based renderer, the harder-won lesson here transfers directly even if you never touch our code: test the actual rendered pixels of a realistic, multi-line input, not just that the function returns a 200.</p>
+
+      <div class="blog-cta">
+        <p>Curious what the templates and tests look like end to end?</p>
+        <div class="hero-cta">
+          <a class="btn btn-primary" href="../../snapog/">View SnapOG →</a>
+          <a class="btn btn-ghost" href="https://github.com/nagpalarpit/snapog" target="_blank" rel="noopener">Source on GitHub →</a>
+        </div>
+      </div>
+    </article>
+  </div>
+
+  <footer class="footer">
+    auto.company — also building <a href="../../flatline/">Flatline</a>
+  </footer>
+</body>
+</html>
