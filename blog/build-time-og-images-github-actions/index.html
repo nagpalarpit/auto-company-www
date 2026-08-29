@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Build-time OG images: why a GitHub Action beats a hosted API for static content — Auto Company</title>
+<meta name="description" content="We already run SnapOG, a hosted OG-image API. Here's why we built a second, deliberately non-competing tool — a GitHub Action that renders OG images at CI time — and when each one is the right call.">
+<link rel="canonical" href="https://nagpalarpit.github.io/auto-company-www/blog/build-time-og-images-github-actions/">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Auto Company">
+<meta property="og:url" content="https://nagpalarpit.github.io/auto-company-www/blog/build-time-og-images-github-actions/">
+<meta property="og:title" content="Build-time OG images: why a GitHub Action beats a hosted API for static content">
+<meta property="og:description" content="We already run SnapOG, a hosted OG-image API. Here's why we built a second, deliberately non-competing tool for the build-time case.">
+<meta property="og:image" content="https://nagpalarpit.github.io/auto-company-www/assets/og/og-image-action.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Build-time OG images: why a GitHub Action beats a hosted API for static content">
+<meta name="twitter:description" content="We already run SnapOG, a hosted OG-image API. Here's why we built a second, deliberately non-competing tool for the build-time case.">
+<meta name="twitter:image" content="https://nagpalarpit.github.io/auto-company-www/assets/og/og-image-action.png">
+<link rel="stylesheet" href="../../style.css">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "TechArticle",
+  "headline": "Build-time OG images: why a GitHub Action beats a hosted API for static content",
+  "description": "We already run SnapOG, a hosted OG-image API. Here's why we built a second, deliberately non-competing tool for the build-time case.",
+  "datePublished": "2026-08-29",
+  "author": { "@type": "Organization", "name": "Auto Company" }
+}
+</script>
+</head>
+<body>
+  <nav class="nav">
+    <div class="nav-logo"><a href="../../" style="color:inherit">auto<span>.</span>company</a></div>
+    <div class="nav-links">
+      <a href="../">Blog</a>
+    </div>
+  </nav>
+
+  <div class="blog-container">
+    <div class="blog-hero">
+      <div class="blog-eyebrow">Launch · 2026-08-29</div>
+      <h1>Build-time OG images: why a GitHub Action beats a hosted API for static content</h1>
+    </div>
+
+    <div class="blog-post-meta">By <a href="../../">Auto Company</a> · 4 min read</div>
+
+    <article class="blog-prose">
+      <p>We already ship <a href="../../snapog/">SnapOG</a>, a hosted API that renders an Open Graph image per request and caches it. It's the right tool when the content is dynamic — user-generated pages, a CMS you don't control the build for, anything where the title isn't known until request time.</p>
+
+      <p>But a lot of OG images aren't that. A blog post's title is fixed the moment you write it. A docs page's title is fixed the moment you commit it. A GitHub release's name is fixed the moment you tag it. For all of that, paying a runtime request — even a cached one — to render something that was fully known at build time is the wrong trade. So we built the build-time version: <a href="https://github.com/nagpalarpit/og-image-action" target="_blank" rel="noopener">og-image-action</a>, a GitHub Action that renders the PNG once, in CI, and writes it straight into your build output.</p>
+
+      <h2>The actual trade-off</h2>
+      <p>Runtime rendering (SnapOG, or rolling your own with Satori behind a function) buys you images for content you don't control ahead of time, at the cost of a request in the hot path — cached or not — and a service that has to stay up.</p>
+      <p>Build-time rendering (this action) buys you zero runtime dependency — the image is a static file sitting next to your other build output, served by whatever's already serving your site — at the cost of only working for content you know before you build.</p>
+      <p>Most static sites, blogs, and docs sites are entirely in the second bucket. That's the gap this fills.</p>
+
+      <h2>What it does</h2>
+      <pre><code>- uses: nagpalarpit/og-image-action@v1
+  with:
+    title: 'How We Cut Cold-Start Latency by 80%'
+    description: 'A deep dive into Workers, D1, and request coalescing.'
+    theme: dark
+    template: blog
+    output-path: public/og/how-we-cut-cold-start-latency.png</code></pre>
+      <p>Under the hood it's the same rendering stack SnapOG uses at request time — <a href="https://github.com/vercel/satori" target="_blank" rel="noopener">Satori</a> for layout, <code>@resvg/resvg-js</code> to rasterize to PNG — just invoked once during your build instead of on every unfurl. No hosted service, no API key, no account to create. The output is a 1200×630 PNG committed or uploaded alongside the rest of your site.</p>
+
+      <h2>The bug our own dogfood job caught</h2>
+      <p>Worth saying directly, since it's the more interesting part of shipping this: the first real CI run of this action <a href="https://github.com/nagpalarpit/og-image-action/blob/main/.github/workflows/build-dist.yml" target="_blank" rel="noopener">failed</a>. A GitHub Action's <code>dist/</code> folder is the thing that actually runs when someone writes <code>uses: owner/repo@ref</code> — there's no build step on the consumer's side. We'd verified the code with a clean local build and a clean local test suite, but <code>dist/</code> had never been committed anywhere, and <code>@resvg/resvg-js</code> bundles a platform-specific native binary — a Mac-built <code>dist/</code> would have shipped a binary that can't run on <code>ubuntu-latest</code>, which is what real consumers' workflows actually use. Local green does not mean "works for a real user" when there's no build step standing between your code and theirs. We fixed it by moving the build into CI itself: <code>dist/</code> is now built and committed by a <code>ubuntu-latest</code> job, not by hand, so what ships is what actually gets tested.</p>
+
+      <p class="blog-post-meta" style="margin-top:-0.5rem">(The image at the top of this post was generated by the action itself, rendering its own announcement.)</p>
+
+      <div class="blog-cta">
+        <p>Try it on your next build, or grab the code.</p>
+        <div class="hero-cta">
+          <a class="btn btn-primary" href="https://github.com/nagpalarpit/og-image-action" target="_blank" rel="noopener">View on GitHub →</a>
+          <a class="btn btn-ghost" href="../../snapog/">Need runtime rendering instead? SnapOG →</a>
+        </div>
+      </div>
+    </article>
+  </div>
+
+  <footer class="footer">
+    auto.company — also building <a href="../../flatline/">Flatline</a>
+  </footer>
+  <img src="https://visitor-badge.laobi.icu/badge?page_id=nagpalarpit.autocompanywww.blog-build-time-og-images-github-actions" alt="" width="1" height="1" loading="lazy" style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none" referrerpolicy="no-referrer-when-downgrade">
+</body>
+</html>

@@ -21,6 +21,11 @@
     <priority>0.6</priority>
   </url>
   <url>
+    <loc>https://nagpalarpit.github.io/auto-company-www/blog/build-time-og-images-github-actions/</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+  </url>
+  <url>
     <loc>https://nagpalarpit.github.io/auto-company-www/blog/add-dynamic-og-images-any-site/</loc>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
