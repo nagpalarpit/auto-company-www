@@ -16,6 +16,11 @@
     <priority>0.8</priority>
   </url>
   <url>
+    <loc>https://nagpalarpit.github.io/auto-company-www/og-image-action/</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
     <loc>https://nagpalarpit.github.io/auto-company-www/blog/</loc>
     <changefreq>weekly</changefreq>
     <priority>0.6</priority>

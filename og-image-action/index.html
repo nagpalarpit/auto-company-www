@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>og-image-action — build-time Open Graph images (live now)</title>
+<meta name="description" content="og-image-action renders your OG images in CI, once, at build time — no hosted API, no account, no server to run. Add one workflow step. MIT licensed, live now on GitHub.">
+<link rel="canonical" href="https://nagpalarpit.github.io/auto-company-www/og-image-action/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Auto Company">
+<meta property="og:url" content="https://nagpalarpit.github.io/auto-company-www/og-image-action/">
+<meta property="og:title" content="og-image-action — build-time Open Graph images">
+<meta property="og:description" content="Renders your OG images in CI, once, at build time — no hosted API, no account, no server to run. Add one workflow step. MIT licensed, live now.">
+<meta property="og:image" content="https://nagpalarpit.github.io/auto-company-www/assets/og/og-image-action.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="og-image-action — build-time Open Graph images">
+<meta name="twitter:description" content="Renders your OG images in CI, once, at build time — no hosted API, no account, no server to run. MIT licensed, live now.">
+<meta name="twitter:image" content="https://nagpalarpit.github.io/auto-company-www/assets/og/og-image-action.png">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%230A0A0A'/%3E%3Ccircle cx='50' cy='50' r='24' fill='%23F59E0B'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="../style.css">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "og-image-action",
+  "applicationCategory": "DeveloperApplication",
+  "operatingSystem": "GitHub Actions (node20)",
+  "description": "A GitHub Action that renders 1200x630 Open Graph images at CI/build time using Satori and resvg — no hosted service, no account, no runtime dependency.",
+  "softwareVersion": "v1",
+  "license": "https://github.com/nagpalarpit/og-image-action/blob/main/LICENSE",
+  "offers": {
+    "@type": "Offer",
+    "price": "0",
+    "priceCurrency": "USD",
+    "description": "Free and open source, MIT licensed."
+  }
+}
+</script>
+</head>
+<body>
+  <nav class="nav">
+    <div class="nav-logo"><a href="../" style="color:inherit">auto<span>.</span>company</a></div>
+    <div class="nav-links">
+      <a href="../blog/">Blog</a>
+      <a href="../snapog/">SnapOG →</a>
+    </div>
+  </nav>
+
+  <main>
+  <section class="hero">
+    <div class="container">
+      <div class="eyebrow eyebrow-live">Live now · v1</div>
+      <h1>Render OG images<br/>in <em>CI</em>, not in prod</h1>
+      <p class="hero-sub">
+        og-image-action bakes your 1200×630 social-share image into the
+        build — once, in the workflow that already builds your site. No
+        hosted API to call, no account to create, no server to keep
+        running. Add one step to your workflow YAML. That's the whole
+        integration.
+      </p>
+      <div class="hero-cta">
+        <a href="https://github.com/nagpalarpit/og-image-action" class="btn btn-primary" target="_blank" rel="noopener">View on GitHub →</a>
+        <a href="#install" class="btn btn-ghost">See the install snippet ↓</a>
+      </div>
+      <p class="hero-note">MIT licensed · github.com/nagpalarpit/og-image-action@v1 · zero runtime dependency</p>
+    </div>
+  </section>
+
+  <section class="container section" id="install">
+    <h2>Add it to a workflow</h2>
+    <p class="hero-sub" style="margin-bottom:24px;">
+      Drop this into any job that builds your site — right before you
+      publish. It writes a PNG to the path you give it; commit it, upload
+      it as a build artifact, or let your deploy step pick it up like any
+      other static file.
+    </p>
+    <pre style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:20px 24px;overflow-x:auto;"><code style="font-family:var(--font-mono);font-size:13.5px;line-height:1.7;color:var(--text-1);">- uses: nagpalarpit/og-image-action@v1
+  with:
+    title: 'How We Cut Cold-Start Latency by 80%'
+    description: 'A deep dive into Workers, D1, and request coalescing.'
+    theme: dark
+    template: blog
+    author: 'Jane Doe'
+    domain: example.com
+    tag: Engineering
+    output-path: public/og/how-we-cut-cold-start-latency.png</code></pre>
+    <p class="hero-note" style="margin-top:16px;">Only <code style="font-family:var(--font-mono);color:var(--teal);">title</code> is required — everything else has a sane default.</p>
+  </section>
+
+  <section class="container section">
+    <h2>Inputs</h2>
+    <div class="data-table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr><th>Input</th><th>Required</th><th>Default</th><th>Description</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>title</td><td>yes</td><td>—</td><td>Main heading text.</td></tr>
+          <tr><td>description</td><td>no</td><td>''</td><td>Supporting text under the title.</td></tr>
+          <tr><td>theme</td><td>no</td><td>dark</td><td>dark or light.</td></tr>
+          <tr><td>template</td><td>no</td><td>default</td><td>default, blog, or article.</td></tr>
+          <tr><td>author</td><td>no</td><td>''</td><td>Byline, rendered as — {author}.</td></tr>
+          <tr><td>domain</td><td>no</td><td>''</td><td>Domain/site label in the header.</td></tr>
+          <tr><td>tag</td><td>no</td><td>''</td><td>Category/tag pill in the header.</td></tr>
+          <tr><td>output-path</td><td>no</td><td>og-image.png</td><td>Where to write the PNG, relative to the workspace.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="container section">
+    <h2>Build-time vs. runtime — not a rematch</h2>
+    <div class="vs-grid">
+      <div class="vs-card">
+        <h3><span style="color:var(--teal)">●</span> og-image-action (this)</h3>
+        <p>Renders once, in CI, for content you already know at build time —
+        a blog post, a docs page, a release. The output is a static PNG
+        sitting next to the rest of your build. Nothing runs at request time.
+        Best for static sites, blogs, and docs.</p>
+      </div>
+      <div class="vs-divider">vs</div>
+      <div class="vs-card">
+        <h3><span style="color:var(--accent)">●</span> SnapOG (hosted API)</h3>
+        <p>Renders per request, at the edge, cached — for content you don't
+        control ahead of time: user-generated pages, a CMS you don't own the
+        build for, anything where the title isn't known until someone asks
+        for it.</p>
+      </div>
+    </div>
+    <p class="hero-note" style="text-align:center;margin-top:24px;">
+      Same rendering stack under the hood — Satori + resvg — just invoked at
+      a different point in the pipeline.
+      <a href="../blog/build-time-og-images-github-actions/">Read the full write-up →</a>
+    </p>
+  </section>
+
+  <section class="container section">
+    <h2>How it works</h2>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">01</div>
+        <h3>Add the step</h3>
+        <p>One entry in your existing build workflow. No new pipeline, no npm publish.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">02</div>
+        <h3>Satori + resvg render it</h3>
+        <p>Layout via Satori, rasterized to PNG by <code style="font-family:var(--font-mono);color:var(--teal);">@resvg/resvg-js</code> — inside the action's node20 runtime, no network calls.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">03</div>
+        <h3>Ship it as a static file</h3>
+        <p>The PNG lands at your output path. Commit it or let your existing deploy step publish it — same as any other asset.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="container section">
+    <h2>Get it</h2>
+    <p class="hero-sub" style="margin-bottom:24px;">
+      Open source, MIT licensed, and tagged at v1 today — no waitlist, no
+      early access list. Prebuilt for Linux x64 (glibc and musl), which
+      covers ubuntu-latest and Alpine-based containers.
+    </p>
+    <div class="hero-cta">
+      <a href="https://github.com/nagpalarpit/og-image-action" class="btn btn-primary" target="_blank" rel="noopener">View on GitHub →</a>
+      <a href="https://github.com/nagpalarpit/og-image-action/releases" class="btn btn-ghost" target="_blank" rel="noopener">Releases →</a>
+    </div>
+    <p class="hero-note"><a href="../blog/build-time-og-images-github-actions/">Read the launch post →</a></p>
+  </section>
+  </main>
+
+  <footer class="footer">
+    og-image-action — also building <a href="../snapog/">SnapOG</a> and <a href="../flatline/">Flatline</a>
+  </footer>
+  <img src="https://visitor-badge.laobi.icu/badge?page_id=nagpalarpit.autocompanywww.og-image-action-page" alt="" width="1" height="1" loading="lazy" style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none" referrerpolicy="no-referrer-when-downgrade">
+</body>
+</html>
