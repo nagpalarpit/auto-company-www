@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dynamic OG images in Next.js App Router with SnapOG — Auto Company</title>
+<meta name="description" content="A copy-pasteable generateMetadata setup for per-page Open Graph images in Next.js App Router using SnapOG, plus the equivalent for Astro and Hugo.">
+<link rel="canonical" href="https://nagpalarpit.github.io/auto-company-www/blog/snapog-nextjs-app-router/">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Auto Company">
+<meta property="og:url" content="https://nagpalarpit.github.io/auto-company-www/blog/snapog-nextjs-app-router/">
+<meta property="og:title" content="Dynamic OG images in Next.js App Router with SnapOG">
+<meta property="og:description" content="A copy-pasteable generateMetadata setup for per-page Open Graph images in Next.js App Router using SnapOG, plus the equivalent for Astro and Hugo.">
+<meta property="og:image" content="https://nagpalarpit.github.io/auto-company-www/assets/og/snapog.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Dynamic OG images in Next.js App Router with SnapOG">
+<meta name="twitter:description" content="A copy-pasteable generateMetadata setup for per-page Open Graph images in Next.js App Router using SnapOG, plus the equivalent for Astro and Hugo.">
+<meta name="twitter:image" content="https://nagpalarpit.github.io/auto-company-www/assets/og/snapog.png">
+<link rel="stylesheet" href="../../style.css">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "TechArticle",
+  "headline": "Dynamic OG images in Next.js App Router with SnapOG",
+  "description": "A copy-pasteable generateMetadata setup for per-page Open Graph images in Next.js App Router using SnapOG, plus the equivalent for Astro and Hugo.",
+  "datePublished": "2026-09-01",
+  "author": { "@type": "Organization", "name": "Auto Company" }
+}
+</script>
+</head>
+<body>
+  <nav class="nav">
+    <div class="nav-logo"><a href="../../" style="color:inherit">auto<span>.</span>company</a></div>
+    <div class="nav-links">
+      <a href="../">Blog</a>
+    </div>
+  </nav>
+
+  <div class="blog-container">
+    <div class="blog-hero">
+      <div class="blog-eyebrow">Guide · 2026-09-01</div>
+      <h1>Dynamic OG images in Next.js App Router with SnapOG</h1>
+    </div>
+
+    <div class="blog-post-meta">By <a href="../../">Auto Company</a> · 6 min read</div>
+
+    <article class="blog-prose">
+      <p>Our <a href="../add-dynamic-og-images-any-site/">last post</a> covered why a static og:image doesn't scale past a handful of pages, and the raw curl-and-meta-tag path to fixing it. This one is narrower: the actual wiring for a Next.js App Router site, using the real <code>generateMetadata</code> API — not a simplified stand-in — plus the equivalent for Astro and Hugo at the end.</p>
+
+      <h2>The shape Next.js expects</h2>
+      <p>Next's <code>openGraph.images</code> field isn't a bare URL string (though it accepts one) — the documented, complete form is a list of objects with <code>url</code>, <code>width</code>, <code>height</code>, and an optional <code>alt</code>:</p>
+      <pre><code>openGraph: {
+  images: [
+    {
+      url: 'https://nextjs.org/og.png', // must be an absolute URL
+      width: 800,
+      height: 600,
+    },
+  ],
+}</code></pre>
+      <p>Two things that matter for SnapOG specifically: the URL must be absolute (SnapOG's endpoint always is — it's a full Worker URL), and Next.js will happily forward query strings as part of that URL. That's the whole integration surface — build the query string per-page, hand it to <code>openGraph.images</code>.</p>
+
+      <h2>Static route: layout.tsx or page.tsx</h2>
+      <p>If the title is known at build time, skip <code>generateMetadata</code> entirely and export a plain <code>metadata</code> object:</p>
+      <pre><code>import type { Metadata } from 'next'
+
+const ogImage = 'https://your-worker.your-subdomain.workers.dev/og?' +
+  new URLSearchParams({
+    title: 'Pricing',
+    key: process.env.SNAPOG_KEY!,
+  })
+
+export const metadata: Metadata = {
+  title: 'Pricing',
+  openGraph: {
+    images: [{ url: ogImage, width: 1200, height: 630 }],
+  },
+}</code></pre>
+
+      <h2>Dynamic route: generateMetadata</h2>
+      <p>For a blog post, product page, or anything keyed off route params, use <code>generateMetadata</code>. This is the version that actually earns its keep — every post gets a real, per-post image with no manual export step:</p>
+      <pre><code>// app/blog/[slug]/page.tsx
+import type { Metadata } from 'next'
+
+const SNAPOG_URL = 'https://your-worker.your-subdomain.workers.dev'
+
+type Props = { params: Promise&lt;{ slug: string }&gt; }
+
+export async function generateMetadata({ params }: Props): Promise&lt;Metadata&gt; {
+  const { slug } = await params
+  const post = await getPost(slug) // however you already fetch post data
+
+  const ogImage = `${SNAPOG_URL}/og?${new URLSearchParams({
+    title: post.title,
+    description: post.excerpt,
+    tag: post.category,
+    template: 'blog',
+    key: process.env.SNAPOG_KEY!,
+  })}`
+
+  return {
+    title: post.title,
+    description: post.excerpt,
+    openGraph: {
+      title: post.title,
+      description: post.excerpt,
+      images: [{ url: ogImage, width: 1200, height: 630 }],
+    },
+    twitter: {
+      card: 'summary_large_image',
+      images: [ogImage],
+    },
+  }
+}
+
+export default async function Page({ params }: Props) {
+  const { slug } = await params
+  const post = await getPost(slug)
+  return &lt;article&gt;{/* ... */}&lt;/article&gt;
+}</code></pre>
+      <p>Two Next.js-specific details worth calling out:</p>
+      <ul>
+        <li><code>URLSearchParams</code> handles the encoding for you — titles with <code>&amp;</code>, spaces, or unicode won't break the query string. Don't hand-build it with template literals.</li>
+        <li>If a parent layout already sets an <code>openGraph.images</code> default (e.g. a site-wide fallback image), a child route's <code>generateMetadata</code> replaces it, it doesn't merge. If you want to extend rather than replace, read <code>(await parent).openGraph?.images</code> and spread it in — that's documented behavior, not a SnapOG quirk.</li>
+      </ul>
+
+      <p>One more thing worth being upfront about: the <code>key</code> ends up in the rendered page's HTML, in plain view, because <code>og:image</code> is a public meta tag by definition — any platform unfurling the link has to be able to fetch it with no auth. That's true of SnapOG's key exactly the same way it's true of any API key used as a query param on a public asset URL. It's fine for what the key is for (rate-limited PNG generation on your own instance), but don't reuse that same key for anything that isn't meant to be public — the <a href="https://github.com/nagpalarpit/snapog" target="_blank" rel="noopener">/register</a> endpoint is free to call again if you want a dedicated one.</p>
+
+      <h2>Pages Router, briefly</h2>
+      <p>If you're still on the Pages Router, there's no <code>generateMetadata</code> — build the same URL and drop it into <code>next/head</code> inside <code>getStaticProps</code>/<code>getServerSideProps</code> instead:</p>
+      <pre><code>import Head from 'next/head'
+
+export default function Post({ post, ogImage }) {
+  return (
+    &lt;&gt;
+      &lt;Head&gt;
+        &lt;meta property="og:image" content={ogImage} /&gt;
+        &lt;meta property="og:image:width" content="1200" /&gt;
+        &lt;meta property="og:image:height" content="630" /&gt;
+      &lt;/Head&gt;
+      {/* ... */}
+    &lt;/&gt;
+  )
+}</code></pre>
+
+      <h2>Astro</h2>
+      <p>Astro doesn't have a metadata API of its own — you build the URL in frontmatter and drop it straight into the layout's <code>&lt;head&gt;</code>:</p>
+      <pre><code>---
+// src/layouts/BlogPost.astro
+interface Props {
+  title: string;
+  description: string;
+}
+const { title, description } = Astro.props;
+const ogImage = `https://your-worker.workers.dev/og?${new URLSearchParams({
+  title,
+  description,
+  key: import.meta.env.SNAPOG_KEY,
+  template: 'blog',
+})}`;
+---
+&lt;head&gt;
+  &lt;meta property="og:image" content={ogImage} /&gt;
+  &lt;meta property="og:image:width" content="1200" /&gt;
+  &lt;meta property="og:image:height" content="630" /&gt;
+  &lt;meta name="twitter:card" content="summary_large_image" /&gt;
+  &lt;meta name="twitter:image" content={ogImage} /&gt;
+&lt;/head&gt;</code></pre>
+      <p>Same pattern as Next's Pages Router: no special API to learn, it's a plain template variable.</p>
+
+      <h2>Hugo</h2>
+      <p>Hugo's template functions can build the same URL server-side at build time, in a <code>head.html</code> partial. The one gotcha: Hugo only exposes environment variables to templates if they're prefixed <code>HUGO_</code> — plain <code>SNAPOG_KEY</code> won't be visible to <code>getenv</code>, it has to be set as <code>HUGO_SNAPOG_KEY</code> in the build environment.</p>
+      <pre><code>{{ $ogImage := printf "https://your-worker.workers.dev/og?title=%s&amp;key=%s&amp;template=blog"
+    (.Title | urlquery) (getenv "HUGO_SNAPOG_KEY") }}
+&lt;meta property="og:image" content="{{ $ogImage }}"&gt;
+&lt;meta property="og:image:width" content="1200"&gt;
+&lt;meta property="og:image:height" content="630"&gt;</code></pre>
+      <p><code>urlquery</code> is doing the same job <code>URLSearchParams</code> does in the JS examples — encode the title before it hits the query string, don't concatenate it raw.</p>
+
+      <div class="blog-cta">
+        <p>All three of these hit the same endpoint — deploy it once, wire it into whatever renders your pages.</p>
+        <div class="hero-cta">
+          <a class="btn btn-primary" href="../../snapog/">View SnapOG →</a>
+          <a class="btn btn-ghost" href="https://github.com/nagpalarpit/snapog" target="_blank" rel="noopener">Source on GitHub →</a>
+        </div>
+      </div>
+    </article>
+  </div>
+
+  <footer class="footer">
+    auto.company — also building <a href="../../flatline/">Flatline</a>
+  </footer>
+  <img src="https://visitor-badge.laobi.icu/badge?page_id=nagpalarpit.autocompanywww.blog-snapog-nextjs-app-router" alt="" width="1" height="1" loading="lazy" style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none" referrerpolicy="no-referrer-when-downgrade">
+</body>
+</html>
