@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SnapOG vs og-image-action: which one do you actually need? — Auto Company</title>
+<meta name="description" content="We built both a hosted OG image API and a build-time GitHub Action. Here's the one question that decides which one is right for your site, with real examples on each side.">
+<link rel="canonical" href="https://nagpalarpit.github.io/auto-company-www/blog/snapog-vs-og-image-action/">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Auto Company">
+<meta property="og:url" content="https://nagpalarpit.github.io/auto-company-www/blog/snapog-vs-og-image-action/">
+<meta property="og:title" content="SnapOG vs og-image-action: which one do you actually need?">
+<meta property="og:description" content="We built both a hosted OG image API and a build-time GitHub Action. Here's the one question that decides which one is right for your site.">
+<meta property="og:image" content="https://nagpalarpit.github.io/auto-company-www/assets/og/hub.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="SnapOG vs og-image-action: which one do you actually need?">
+<meta name="twitter:description" content="We built both a hosted OG image API and a build-time GitHub Action. Here's the one question that decides which one is right for your site.">
+<meta name="twitter:image" content="https://nagpalarpit.github.io/auto-company-www/assets/og/hub.png">
+<link rel="stylesheet" href="../../style.css">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "TechArticle",
+  "headline": "SnapOG vs og-image-action: which one do you actually need?",
+  "description": "We built both a hosted OG image API and a build-time GitHub Action. Here's the one question that decides which one is right for your site.",
+  "datePublished": "2026-09-01",
+  "author": { "@type": "Organization", "name": "Auto Company" }
+}
+</script>
+</head>
+<body>
+  <nav class="nav">
+    <div class="nav-logo"><a href="../../" style="color:inherit">auto<span>.</span>company</a></div>
+    <div class="nav-links">
+      <a href="../">Blog</a>
+    </div>
+  </nav>
+
+  <div class="blog-container">
+    <div class="blog-hero">
+      <div class="blog-eyebrow">Guide · 2026-09-01</div>
+      <h1>SnapOG vs og-image-action: which one do you actually need?</h1>
+    </div>
+
+    <div class="blog-post-meta">By <a href="../../">Auto Company</a> · 4 min read</div>
+
+    <article class="blog-prose">
+      <p>We built two OG-image tools that solve the same underlying problem — gray-box link previews — in opposite ways. People who find one often assume it's a smaller or bigger version of the other. It isn't. They're built for two different kinds of content, and using the wrong one for your case means either paying for infrastructure you don't need or hitting a wall the other tool doesn't have.</p>
+
+      <p>There's exactly one question that decides which one you want.</p>
+
+      <h2>The question: do you know the title at build time?</h2>
+      <p>Every page on a site falls into one of two buckets:</p>
+      <ul>
+        <li><strong>Known ahead of time.</strong> Blog posts, docs pages, changelog entries, marketing pages — the title exists in your repo (frontmatter, a CMS export, a config file) before you build and deploy.</li>
+        <li><strong>Not known ahead of time.</strong> User profiles, search results, dynamically generated pages, anything a visitor's input shapes — the title doesn't exist until someone hits the page.</li>
+      </ul>
+      <p>If your content is the first kind, you don't need a runtime service at all. If it's the second kind, you don't have a choice — you need one.</p>
+
+      <h2>og-image-action: for content you already know</h2>
+      <p><a href="../../og-image-action/">og-image-action</a> is a GitHub Action that renders your OG images during CI, before deploy, from data already in your repo. There's no server to run afterward — the images are static files sitting next to your other build output, served by whatever's already serving your site.</p>
+      <p>Good fit: static site generators (Astro, Hugo, Eleventy, Next.js static export), docs sites, blogs where every post's title is known at commit time.</p>
+      <p>What it can't do: render an image for a title it didn't know about at build time. A new user's profile page, a URL with a query-string-driven title — none of that exists yet when CI runs.</p>
+
+      <h2>SnapOG: for content you find out about at request time</h2>
+      <p><a href="../../snapog/">SnapOG</a> is a hosted (self-hosted, on your own Cloudflare account) API: send a title as a query param, get a PNG back, cached at the edge after the first hit. It's a live endpoint, not a build artifact.</p>
+      <p>Good fit: user-generated content, search or filter result pages, anything server-rendered per-request, any site where "run the build again" isn't how a new page comes into existence.</p>
+      <p>What it costs you that the Action doesn't: a service that has to stay up, and a request in the path (mitigated by R2 caching, but still a live dependency your static-file approach doesn't have).</p>
+
+      <h2>Can you use both?</h2>
+      <p>Yes, and plenty of real sites do — a docs site with static pages plus a dashboard with user-specific pages doesn't have to force one tool onto both. Run og-image-action for the parts of the site that build ahead of time, point SnapOG at the parts that don't. They're not competing for the same job; they're deliberately non-overlapping by design, not by accident.</p>
+
+      <blockquote>If you're not sure which bucket your content falls in: can you list every URL that needs an OG image before you run <code>npm run build</code>? If yes, use og-image-action. If the list only exists once real traffic starts hitting the site, use SnapOG.</blockquote>
+
+      <div class="blog-cta">
+        <p>Pick the one that matches your content, or grab the code for both.</p>
+        <div class="hero-cta">
+          <a class="btn btn-primary" href="../../og-image-action/">og-image-action →</a>
+          <a class="btn btn-primary" href="../../snapog/">SnapOG →</a>
+        </div>
+      </div>
+    </article>
+  </div>
+
+  <footer class="footer">
+    auto.company — also building <a href="../../flatline/">Flatline</a>
+  </footer>
+  <img src="https://visitor-badge.laobi.icu/badge?page_id=nagpalarpit.autocompanywww.blog-snapog-vs-og-image-action" alt="" width="1" height="1" loading="lazy" style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none" referrerpolicy="no-referrer-when-downgrade">
+</body>
+</html>
