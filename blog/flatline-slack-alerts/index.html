@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wiring Flatline alerts straight into Slack — Auto Company</title>
+<meta name="description" content="Flatline's webhook payload has a top-level text field built to work as a Slack incoming webhook with zero middleware. Here's the exact curl commands to wire it up, plus the two limits worth knowing before you rely on it.">
+<link rel="canonical" href="https://nagpalarpit.github.io/auto-company-www/blog/flatline-slack-alerts/">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Auto Company">
+<meta property="og:url" content="https://nagpalarpit.github.io/auto-company-www/blog/flatline-slack-alerts/">
+<meta property="og:title" content="Wiring Flatline alerts straight into Slack">
+<meta property="og:description" content="Flatline's webhook payload has a top-level text field built to work as a Slack incoming webhook with zero middleware. Here's the exact curl commands to wire it up, plus the two limits worth knowing before you rely on it.">
+<meta property="og:image" content="https://nagpalarpit.github.io/auto-company-www/assets/og/flatline.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Wiring Flatline alerts straight into Slack">
+<meta name="twitter:description" content="Flatline's webhook payload has a top-level text field built to work as a Slack incoming webhook with zero middleware. Here's the exact curl commands to wire it up, plus the two limits worth knowing before you rely on it.">
+<meta name="twitter:image" content="https://nagpalarpit.github.io/auto-company-www/assets/og/flatline.png">
+<link rel="stylesheet" href="../../style.css">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "TechArticle",
+  "headline": "Wiring Flatline alerts straight into Slack",
+  "description": "Flatline's webhook payload has a top-level text field built to work as a Slack incoming webhook with zero middleware. Here's the exact curl commands to wire it up, plus the two limits worth knowing before you rely on it.",
+  "datePublished": "2026-09-01",
+  "author": { "@type": "Organization", "name": "Auto Company" }
+}
+</script>
+</head>
+<body>
+  <nav class="nav">
+    <div class="nav-logo"><a href="../../" style="color:inherit">auto<span>.</span>company</a></div>
+    <div class="nav-links">
+      <a href="../">Blog</a>
+    </div>
+  </nav>
+
+  <div class="blog-container">
+    <div class="blog-hero">
+      <div class="blog-eyebrow">Guide · 2026-09-01</div>
+      <h1>Wiring Flatline alerts straight into Slack</h1>
+    </div>
+
+    <div class="blog-post-meta">By <a href="../../">Auto Company</a> · 4 min read</div>
+
+    <article class="blog-prose">
+      <p>Most heartbeat-monitoring tools ship "Slack integration" as a separate settings page, an OAuth flow, and sometimes a paid-tier gate. Flatline doesn't have one of those, and it doesn't need one: its webhook payload was designed from the start to double as a Slack incoming-webhook payload, so pointing a check's <code>webhook_url</code> at a Slack webhook is the entire integration. No Zapier, no relay function, no separate config screen.</p>
+
+      <h2>Step 1: Create a Slack incoming webhook</h2>
+      <p>This part is plain Slack, not Flatline. In the channel you want alerts to land in, add an <strong>Incoming Webhooks</strong> app (or use one your workspace already has), and copy the webhook URL it gives you — something like:</p>
+      <pre><code>https://hooks.slack.com/services/T000/B000/XXXXXXXXXXXX</code></pre>
+
+      <h2>Step 2: Get a Flatline API key</h2>
+      <p>Self-serve registration only needs an email, and only ever grants the free tier (paid upgrade is a separate, deliberately out-of-scope path — see the check limits below):</p>
+      <pre><code>curl -X POST https://your-flatline-worker.workers.dev/register \
+  -H 'Content-Type: application/json' \
+  -d '{"email": "you@example.com"}'</code></pre>
+      <p>That returns a raw API key. It's shown once — store it, Flatline only keeps the hash.</p>
+
+      <h2>Step 3: Create the check with the Slack URL as webhook_url</h2>
+      <pre><code>curl -X POST https://your-flatline-worker.workers.dev/checks \
+  -H 'Authorization: Bearer sk_your_key_here' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "name": "nightly-backup",
+    "period_seconds": 3600,
+    "grace_seconds": 300,
+    "webhook_url": "https://hooks.slack.com/services/T000/B000/XXXXXXXXXXXX"
+  }'</code></pre>
+      <p>The response includes a <code>ping_url</code> — that's the URL your job calls on every successful run.</p>
+
+      <h2>Step 4: Ping it from your job</h2>
+      <p>Add one line to the end of whatever script or cron job you're monitoring — either verb works, no API key required (the check id in the URL is the credential):</p>
+      <pre><code>curl https://your-flatline-worker.workers.dev/ping/chk_abc123</code></pre>
+      <p>If that ping doesn't show up again within <code>period_seconds + grace_seconds</code>, Flatline fires the webhook. If it later recovers, it fires again with the recovered state. That's the whole lifecycle.</p>
+
+      <h2>Why the payload needs no translation</h2>
+      <p>A generic outbound webhook usually gives you structured JSON that Slack can't render on its own — you'd normally write a small relay function to reshape <code>{"status": "down", ...}</code> into Slack's <code>{"text": "..."}</code> or <code>blocks</code> format. Flatline's payload skips that step by including a top-level <code>text</code> field alongside the structured fields:</p>
+      <pre><code>{
+  "check_id": "chk_abc123",
+  "check_name": "nightly-backup",
+  "status": "down",
+  "previous_status": "up",
+  "occurred_at": "2026-09-01T03:14:00.000Z",
+  "message": "Check \"nightly-backup\" went DOWN — no ping received within 3900s (period 3600s + grace 300s).",
+  "text": "🔴 Check \"nightly-backup\" went DOWN — no ping received within 3900s (period 3600s + grace 300s)."
+}</code></pre>
+      <p>Slack's incoming-webhook receiver reads <code>text</code> and ignores fields it doesn't recognize, so this same payload posts cleanly with no transformation. The emoji flips between 🔴 and 🟢 depending on direction, so a channel with a few checks in it stays scannable without opening anything.</p>
+
+      <h2>Two limits worth knowing before you rely on this</h2>
+      <p><strong>Delivery is one-shot.</strong> If Slack's endpoint is briefly down or times out when Flatline fires the webhook, there's no retry queue in v1 — the attempt (success or failure) is recorded for later visibility, but it won't be redelivered automatically. For a single critical job, that's a real gap; it's the tradeoff Flatline made to ship without a persistent job queue.</p>
+      <p><strong>The ping floor depends on your tier.</strong> Free-tier checks can't be configured with a <code>period_seconds</code> below 300 (5 minutes) — so Flatline isn't a fit for monitoring something that's expected to run every minute unless you're on Pro or Business, where the floor drops to 60 seconds. Set <code>period_seconds</code> to match how often the job you're watching is actually supposed to run, with <code>grace_seconds</code> as the buffer before you want to be paged.</p>
+      <p>One more thing that trips people up in local testing: <code>webhook_url</code> is rejected at check-creation time if it resolves to a loopback, link-local, or private IP literal (that's SSRF hardening, not a bug) — so a webhook receiver on <code>localhost</code> won't validate. Use a public tunnel URL (ngrok or similar) if you want to test the delivery path before pointing it at Slack for real.</p>
+
+      <div class="blog-cta">
+        <p>Same webhook_url field works for any endpoint that accepts a JSON POST — Slack is just the common case, not a special one.</p>
+        <div class="hero-cta">
+          <a class="btn btn-primary" href="../../flatline/">View Flatline →</a>
+          <a class="btn btn-ghost" href="https://github.com/nagpalarpit/flatline" target="_blank" rel="noopener">Source on GitHub →</a>
+        </div>
+      </div>
+    </article>
+  </div>
+
+  <footer class="footer">
+    auto.company — also building <a href="../../snapog/">SnapOG</a>
+  </footer>
+  <img src="https://visitor-badge.laobi.icu/badge?page_id=nagpalarpit.autocompanywww.blog-flatline-slack-alerts" alt="" width="1" height="1" loading="lazy" style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none" referrerpolicy="no-referrer-when-downgrade">
+</body>
+</html>
