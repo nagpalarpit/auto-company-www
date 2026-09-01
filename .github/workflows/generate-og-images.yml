@@ -15,9 +15,12 @@ name: Generate per-post OG images
 #                      isolated parallel runners, so there's no shared
 #                      filesystem to write the PNGs to directly).
 #
-# The generated images are NOT committed by this workflow. They're pulled
-# back with `gh run download` and committed locally — see
-# docs/fullstack/og-image-blog-matrix.md for why.
+# The generated images are NOT committed by this workflow. Default
+# GITHUB_TOKEN permissions on this repo are read-only, so instead of
+# adding a contents: write grant, images are pulled back with
+# `gh run download` and committed locally after being verified as valid
+# 1200x630 PNGs. See blog/og-image-action-blog-matrix-workflow/ for the
+# full writeup.
 
 on:
   workflow_dispatch:
