@@ -1,0 +1,64 @@
+name: Generate per-post OG images
+
+# Generates a unique 1200x630 Open Graph image per blog post using
+# nagpalarpit/og-image-action@v1. That action's dist/ only bundles a
+# prebuilt Linux x64 native binary (@resvg/resvg-js) — see its README's
+# "Platform support" section — so it only runs on Linux CI runners, not
+# locally on a Mac. This workflow is that CI.
+#
+# Two jobs:
+#   1. list-posts   — parses blog/*/index.html and emits a JSON array of
+#                      {slug, title, description, tag} as a job output.
+#   2. generate      — a matrix job, one entry per post, each calling
+#                      og-image-action once and uploading the resulting
+#                      PNG as a build artifact (matrix jobs run on
+#                      isolated parallel runners, so there's no shared
+#                      filesystem to write the PNGs to directly).
+#
+# The generated images are NOT committed by this workflow. They're pulled
+# back with `gh run download` and committed locally — see
+# docs/fullstack/og-image-blog-matrix.md for why.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'blog/**/index.html'
+      - '.github/workflows/generate-og-images.yml'
+      - 'scripts/list-posts.mjs'
+
+jobs:
+  list-posts:
+    runs-on: ubuntu-latest
+    outputs:
+      posts: ${{ steps.list.outputs.posts }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: list
+        run: |
+          POSTS=$(node scripts/list-posts.mjs)
+          echo "posts=$POSTS" >> "$GITHUB_OUTPUT"
+      - run: echo '${{ steps.list.outputs.posts }}' | node -e "const d=JSON.parse(require('fs').readFileSync(0,'utf8')); console.log('posts found:', d.length);"
+
+  generate:
+    needs: list-posts
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        post: ${{ fromJSON(needs.list-posts.outputs.posts) }}
+    steps:
+      - uses: nagpalarpit/og-image-action@v1
+        with:
+          title: ${{ matrix.post.title }}
+          description: ${{ matrix.post.description }}
+          theme: dark
+          template: blog
+          domain: auto.company
+          tag: ${{ matrix.post.tag }}
+          output-path: assets/og/posts/${{ matrix.post.slug }}.png
+      - uses: actions/upload-artifact@v4
+        with:
+          name: og-${{ matrix.post.slug }}
+          path: assets/og/posts/${{ matrix.post.slug }}.png
+          retention-days: 7
