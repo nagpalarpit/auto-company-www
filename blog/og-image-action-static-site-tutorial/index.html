@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A working og-image-action workflow, end to end — Auto Company</title>
+<meta name="description" content="Step-by-step setup for og-image-action: the workflow YAML, all three real templates (default, blog, article), and the output-path traversal behavior worth knowing before you wire it to untrusted input.">
+<link rel="canonical" href="https://nagpalarpit.github.io/auto-company-www/blog/og-image-action-static-site-tutorial/">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Auto Company">
+<meta property="og:url" content="https://nagpalarpit.github.io/auto-company-www/blog/og-image-action-static-site-tutorial/">
+<meta property="og:title" content="A working og-image-action workflow, end to end">
+<meta property="og:description" content="Step-by-step setup for og-image-action: the workflow YAML, all three real templates (default, blog, article), and the output-path traversal behavior worth knowing before you wire it to untrusted input.">
+<meta property="og:image" content="https://nagpalarpit.github.io/auto-company-www/assets/og/og-image-action.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="A working og-image-action workflow, end to end">
+<meta name="twitter:description" content="Step-by-step setup for og-image-action: the workflow YAML, all three real templates (default, blog, article), and the output-path traversal behavior worth knowing before you wire it to untrusted input.">
+<meta name="twitter:image" content="https://nagpalarpit.github.io/auto-company-www/assets/og/og-image-action.png">
+<link rel="stylesheet" href="../../style.css">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "TechArticle",
+  "headline": "A working og-image-action workflow, end to end",
+  "description": "Step-by-step setup for og-image-action: the workflow YAML, all three real templates (default, blog, article), and the output-path traversal behavior worth knowing before you wire it to untrusted input.",
+  "datePublished": "2026-09-01",
+  "author": { "@type": "Organization", "name": "Auto Company" }
+}
+</script>
+</head>
+<body>
+  <nav class="nav">
+    <div class="nav-logo"><a href="../../" style="color:inherit">auto<span>.</span>company</a></div>
+    <div class="nav-links">
+      <a href="../">Blog</a>
+    </div>
+  </nav>
+
+  <div class="blog-container">
+    <div class="blog-hero">
+      <div class="blog-eyebrow">Guide · 2026-09-01</div>
+      <h1>A working og-image-action workflow, end to end</h1>
+    </div>
+
+    <div class="blog-post-meta">By <a href="../../">Auto Company</a> · 5 min read</div>
+
+    <article class="blog-prose">
+      <p>We've <a href="../build-time-og-images-github-actions/">written about why</a> og-image-action renders at build time instead of on every request, and <a href="../snapog-vs-og-image-action/">how to pick</a> between it and a hosted API. This post skips the pitch and just walks through wiring it into a real workflow: the YAML, all three templates it actually ships, and one filesystem behavior worth understanding before you point it at anything you didn't write yourself.</p>
+
+      <h2>Step 1: Add the workflow step</h2>
+      <p>There's no account to create and no API key to fetch — the action runs entirely inside your own CI job:</p>
+      <pre><code>- uses: nagpalarpit/og-image-action@v1
+  with:
+    title: 'How We Cut Cold-Start Latency by 80%'
+    description: 'A deep dive into Workers, D1, and request coalescing.'
+    theme: dark
+    template: blog
+    author: 'Jane Doe'
+    domain: example.com
+    tag: Engineering
+    output-path: public/og/how-we-cut-cold-start-latency.png</code></pre>
+      <p><code>title</code> is the only required input. Everything else — <code>description</code>, <code>theme</code>, <code>template</code>, <code>author</code>, <code>domain</code>, <code>tag</code>, <code>output-path</code> — has a default, so a minimal step is just <code>title</code> plus wherever you want the PNG written. The action outputs <code>output-path</code> (the absolute path to the file it wrote) if a later step in the same job needs it.</p>
+
+      <h2>Step 2: Pick a template</h2>
+      <p>There are three, and they're visually distinct, not just re-colored copies of each other:</p>
+      <p><strong><code>default</code></strong> — sans-serif (Lato), a left accent bar, domain/tag header row, byline footer. General purpose; this is what you get if you omit <code>template</code> entirely.</p>
+      <p><strong><code>blog</code></strong> — serif (PT Serif), a top accent band instead of a side bar, and the description renders in italics. Built for editorial content — the example in Step 1 uses it.</p>
+      <p><strong><code>article</code></strong> — sans-serif again, but higher-contrast: an uppercase monospace category row, a short accent divider under it, and a footer divider line above the byline. Reads more like a magazine masthead than the other two.</p>
+      <p>All three share the same font-sizing logic: title font size steps down automatically past 40 and past 55-60 characters (the exact thresholds vary slightly per template) so a long headline doesn't overflow the 1200×630 canvas.</p>
+
+      <h2>Step 3: Pick a theme</h2>
+      <p><code>theme: dark</code> (the default) and <code>theme: light</code> just swap the background/text/surface color pairs within whichever template you picked — the accent color (<code>#F59E0B</code>, amber) stays constant across both themes and all three templates, so it's a consistent brand thread if you're generating images for the same site repeatedly.</p>
+
+      <h2>The output-path behavior worth knowing</h2>
+      <p>This is the one part of the README that's worth repeating rather than skimming past: <code>output-path</code> is resolved with Node's <code>path.resolve(process.cwd(), ...)</code>, which follows <code>../</code> segments and accepts absolute paths — by design, since the action's own verification script relies on writing to a system tmpdir outside the workspace. That's fine when you write the path yourself as a fixed string, which is how every example in this post uses it.</p>
+      <p>It stops being fine the moment <code>output-path</code> is built from something an untrusted party controls — an issue title, a PR body, a branch name — instead of a literal you wrote. That's not specific to this action; it's GitHub's general <a href="https://docs.github.com/en/actions/security-guides/security-hardening-for-github-actions#understanding-the-risk-of-script-injections" target="_blank" rel="noopener">guidance on untrusted input in workflows</a>, but it applies directly here because this is one of the few actions where a string input has a real filesystem side effect. If you ever find yourself templating <code>output-path</code> from event data, stop and treat it exactly like you'd treat interpolating that data into a shell command.</p>
+
+      <h2>One platform caveat</h2>
+      <p>The prebuilt <code>dist/</code> only bundles the Linux x64 native binary for <code>@resvg/resvg-js</code> (both glibc and musl) — that covers <code>ubuntu-latest</code> and Alpine-based containers, which is what the overwhelming majority of workflows already run on. It won't currently work on macOS- or Windows-hosted runners; that's a one-line dependency addition if you need it, per the README.</p>
+
+      <div class="blog-cta">
+        <p>The whole rendering pipeline — Satori for layout, resvg for rasterizing — runs inside the action's own node20 runtime. No network calls, no external service.</p>
+        <div class="hero-cta">
+          <a class="btn btn-primary" href="https://github.com/nagpalarpit/og-image-action" target="_blank" rel="noopener">View on GitHub →</a>
+          <a class="btn btn-ghost" href="../snapog-vs-og-image-action/">Compare with SnapOG →</a>
+        </div>
+      </div>
+    </article>
+  </div>
+
+  <footer class="footer">
+    auto.company — also building <a href="../../snapog/">SnapOG</a> and <a href="../../flatline/">Flatline</a>
+  </footer>
+  <img src="https://visitor-badge.laobi.icu/badge?page_id=nagpalarpit.autocompanywww.blog-og-image-action-static-site-tutorial" alt="" width="1" height="1" loading="lazy" style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none" referrerpolicy="no-referrer-when-downgrade">
+</body>
+</html>
