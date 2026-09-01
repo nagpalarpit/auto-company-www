@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flatline vs UptimeRobot: free heartbeat monitoring vs a paid tier — Auto Company</title>
+<meta name="description" content="UptimeRobot has a heartbeat/cron monitor type, but it's locked behind the $9-10/mo Solo plan — the free tier doesn't include it. Flatline only does heartbeat monitoring, and it's free on your own Cloudflare account. Full pricing and feature breakdown.">
+<link rel="canonical" href="https://nagpalarpit.github.io/auto-company-www/blog/flatline-vs-uptimerobot/">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Auto Company">
+<meta property="og:url" content="https://nagpalarpit.github.io/auto-company-www/blog/flatline-vs-uptimerobot/">
+<meta property="og:title" content="Flatline vs UptimeRobot: free heartbeat monitoring vs a paid tier">
+<meta property="og:description" content="UptimeRobot's heartbeat/cron monitor type is locked behind its $9-10/mo Solo plan. Flatline only does heartbeat monitoring, free on your own Cloudflare account. Here's the real breakdown.">
+<meta property="og:image" content="https://nagpalarpit.github.io/auto-company-www/assets/og/hub.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Flatline vs UptimeRobot: free heartbeat monitoring vs a paid tier">
+<meta name="twitter:description" content="UptimeRobot's heartbeat/cron monitor type is locked behind its $9-10/mo Solo plan. Flatline only does heartbeat monitoring, free on your own Cloudflare account.">
+<meta name="twitter:image" content="https://nagpalarpit.github.io/auto-company-www/assets/og/hub.png">
+<link rel="stylesheet" href="../../style.css">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "TechArticle",
+  "headline": "Flatline vs UptimeRobot: free heartbeat monitoring vs a paid tier",
+  "description": "UptimeRobot's heartbeat/cron monitor type is locked behind its $9-10/mo Solo plan and up — the free tier doesn't include it. Flatline only does heartbeat monitoring, and it's free on your own Cloudflare account.",
+  "datePublished": "2026-09-01",
+  "author": { "@type": "Organization", "name": "Auto Company" }
+}
+</script>
+</head>
+<body>
+  <nav class="nav">
+    <div class="nav-logo"><a href="../../" style="color:inherit">auto<span>.</span>company</a></div>
+    <div class="nav-links">
+      <a href="../">Blog</a>
+    </div>
+  </nav>
+
+  <div class="blog-container">
+    <div class="blog-hero">
+      <div class="blog-eyebrow">Guide · 2026-09-01</div>
+      <h1>Flatline vs UptimeRobot: free heartbeat monitoring vs a paid tier</h1>
+    </div>
+
+    <div class="blog-post-meta">By <a href="../../">Auto Company</a> · 7 min read</div>
+
+    <article class="blog-prose">
+      <p>UptimeRobot is the tool most people mean when they say "I just use a free uptime monitor" — it's the default answer, the one with the greenish widget half the indie hacker internet has bookmarked. It's also a genuinely broad product: nine monitor types, status pages, an API, a mobile app. <a href="../../flatline/">Flatline</a> is the opposite shape — one open-source Cloudflare Worker that does exactly one thing. So this comparison isn't really "which tool is better," it's "does the big general-purpose tool's free tier actually cover what you need," and the answer turns out to be more specific than you'd guess.</p>
+
+      <h2>UptimeRobot does heartbeat monitoring too — it's just not on the free plan</h2>
+      <p>UptimeRobot calls it <a href="https://uptimerobot.com/cron-job-monitoring/" target="_blank" rel="noopener">cron job monitoring</a>, and the mechanic is identical to Flatline's: you create a monitor, set an interval and an optional grace period, get back a URL, and your job pings it with a GET or POST after every successful run. Miss the window, get alerted. It's the same dead-man's-switch pattern, described almost the same way, on both products.</p>
+      <p>The part worth knowing before you sign up: per UptimeRobot's own current pricing (verified live, September 2026), <strong>heartbeat/cron monitoring is not included on the Free plan at all.</strong> Free ($0/mo, no credit card) gives you 50 monitors on a 5-minute interval, but only HTTP/port/ping and keyword checks — the feature list explicitly excludes API, UDP, multi-location, DNS, SSL/domain-expiry, and heartbeat monitoring. To get the cron/heartbeat monitor type, you need Solo or above, which starts at <strong>$9-10/month</strong> (10 monitors, $9/mo billed annually or $10/mo billed monthly; a 50-monitor tier of Solo runs $19-22/mo). If your whole use case is "alert me when a cron job stops running," UptimeRobot's free tier can't do that — you're a paying customer from day one.</p>
+
+      <h2>Flatline: heartbeat monitoring, self-hosted, free by construction</h2>
+      <p>Flatline is <a href="https://github.com/nagpalarpit/flatline" target="_blank" rel="noopener">open source</a> — a Hono app on Cloudflare Workers backed by D1, with a cron trigger that sweeps for overdue checks once a minute. You deploy it to your own Cloudflare account (there's a one-click button), register a check with a period and a grace window, and curl the ping URL at the end of your job. There's no website/HTTP polling, no keyword or port checks, no status pages, no dashboard beyond the landing page — heartbeat monitoring is the entire product, not a feature gated behind a tier.</p>
+      <p>Because you're running it on your own Cloudflare account, there's no "$0 plan with a catch" — the free-tier limits in Flatline's code (25 checks, 5-minute minimum ping interval) exist to bound Cloudflare's own D1 write costs on the instance you're operating, not to upsell you. Higher tiers (pro: 100 checks/1-minute floor, business: 1,000 checks/1-minute floor) exist in the schema, but self-serve registration only ever grants free — there's no billing wired up to unlock them, they're just there if you want to grant yourself one directly.</p>
+
+      <h2>Pricing side by side</h2>
+      <p>UptimeRobot's tiers, confirmed live off their pricing page and machine-readable pricing reference:</p>
+      <ul>
+        <li><strong>Free — $0/mo:</strong> 50 monitors, 5-min interval, HTTP/port/ping/keyword only (no heartbeat), 1 status page, 5 integrations, 3-month data retention, no notify/login seats.</li>
+        <li><strong>Solo — from $9-10/mo ($108/yr billed annually at the 10-monitor tier, $19-22/mo for 50 monitors):</strong> 60-second interval, adds API/UDP/DNS/SSL/heartbeat monitoring, 3 status pages, 9 integrations, 12-month retention.</li>
+        <li><strong>Team — $35-41/mo, fixed at 100 monitors ("most popular"):</strong> 30-second interval, 100 status pages, all 12 integrations (adds Webhook/Zapier/PagerDuty), 3 notify + 3 login seats, 24-month retention.</li>
+        <li><strong>Scale — from $65-77/mo (200 monitors), $149-179/mo for 500 monitors:</strong> 15-second interval, unlimited status pages, 5 seats, SOC 2/GDPR/CCPA compliance callouts.</li>
+        <li><strong>Enterprise — custom quote:</strong> 500+ monitors, custom intervals, dedicated CSM, SLA, procurement-friendly invoicing.</li>
+      </ul>
+      <p>Flatline's pricing, in full: $0, on your own Cloudflare account, at whatever Cloudflare's free tier covers — which for a low-traffic Worker and D1 database is normally $0 regardless of which of the three code-level tiers you're running under.</p>
+
+      <h2>What UptimeRobot's paid tiers actually buy you</h2>
+      <p>It's not just the heartbeat monitor type. Once you're on Solo and up, you also get eight other monitor types (HTTP, keyword, ping, port, API, UDP, DNS, SSL/domain expiry) under the same account, SMS and voice-call alerting (10-20 credits included on Solo, scaling up through the tiers, with more purchasable as one-time packs), a hosted dashboard and mobile app, status pages with increasing customization, and — starting at Team — incident comments with root-cause detail and dashboard seats for teammates. If "monitor everything, one login, phone call at 3am" is the actual requirement, that's a real, coherent product, and it's cheap relative to buying each of those capabilities separately.</p>
+
+      <h2>Alerting: SMS and 12 integrations vs one webhook, one shot</h2>
+      <p>This is UptimeRobot's clearest built-in advantage once you're paying for it. Solo and up include SMS/voice-call credits and a growing integration list (9 on Solo, all 12 — including Webhook, Zapier, and PagerDuty — on Team and Scale), plus Slack, Mattermost, Telegram, and MS Teams. A phone call at 3am is a checkbox, not a project, and UptimeRobot already has the telephony relationship that makes it work.</p>
+      <p>Flatline is webhook-only, by deliberate design — no email or SMS relay in the codebase, on purpose, because that's a third-party credential dependency the project didn't want in its own request path. When a check flips, it fires exactly one HTTP POST to your configured URL with a 5-second timeout; the payload includes a top-level <code>text</code> field so it drops straight into a Slack incoming webhook with zero transformation. It's genuinely one-shot, too — no retry queue. If your endpoint is down or times out, the attempt is logged (status code, success/failure, error) for you to check later, but nothing retries it automatically. If you want SMS or a phone call, you're pointing the webhook at something that already provides that (PagerDuty's webhook intake, for instance) — Flatline doesn't have it natively, and UptimeRobot, once you're paying, does.</p>
+
+      <h2>The one hardening detail worth knowing on the Flatline side</h2>
+      <p>Because Flatline's alerting path is "we fetch a URL you gave us," the <code>webhook_url</code> field is validated against loopback, private (RFC1918), and link-local IPv4/IPv6 ranges — including the <code>169.254.169.254</code> cloud metadata address — at check-creation time, and outbound delivery uses <code>redirect: 'manual'</code> so a webhook URL can't pass validation as a public host and then 30x to an internal target at delivery time. The one gap the code explicitly flags as out of scope: DNS rebinding, where an ordinary-looking hostname resolves to a private address only at request time, after already passing the check as a normal public hostname. That's a real, documented residual risk, not a made-up caveat.</p>
+
+      <h2>Where UptimeRobot is genuinely the better choice</h2>
+      <ul>
+        <li>You want website/HTTP uptime checking, keyword monitoring, SSL/domain expiry alerts, status pages, and a mobile app — none of which Flatline does at all, at any price.</li>
+        <li>You want SMS or phone-call alerting without building your own relay — that's a paid-tier checkbox on UptimeRobot, not a project.</li>
+        <li>You want zero infrastructure to operate: no Cloudflare account, no Worker, no D1 database to keep an eye on — sign up and you're monitoring in minutes.</li>
+        <li>You're monitoring more than one kind of thing (a website, an API, a cron job) and want it all under one login instead of stitching tools together.</li>
+      </ul>
+
+      <h2>Where Flatline is genuinely the better choice</h2>
+      <ul>
+        <li>Cron/heartbeat monitoring is literally all you need, and you don't want to pay $9-10/mo minimum just to unlock that one monitor type.</li>
+        <li>You'd rather your check definitions and webhook URLs never leave your own Cloudflare account than hand them to a third party.</li>
+        <li>You already have a webhook-based alert channel (Slack, Discord, PagerDuty's webhook intake) — Flatline's payload drops straight in.</li>
+        <li>You don't mind that "self-hosted" means you own the Worker: you clicked one deploy button, and updates/security patches are on you to pull.</li>
+      </ul>
+
+      <h2>Can you use both?</h2>
+      <p>Yes, and it's arguably the most natural split of any comparison we've written. Use UptimeRobot for what it's actually built for — public-facing website/API uptime, SSL expiry, a status page customers look at — and self-host Flatline for the cron jobs and background workers where a Slack ping is enough, without paying a monthly minimum just to get heartbeat monitoring turned on.</p>
+
+      <div class="blog-cta">
+        <p>Self-host Flatline in a few minutes, or read the 5-minute setup guide first.</p>
+        <div class="hero-cta">
+          <a class="btn btn-primary" href="../../flatline/">Flatline →</a>
+          <a class="btn btn-primary" href="../cron-jobs-fail-silently/">5-minute setup guide →</a>
+        </div>
+      </div>
+    </article>
+  </div>
+
+  <footer class="footer">
+    auto.company — also building <a href="../../snapog/">SnapOG</a>
+  </footer>
+  <img src="https://visitor-badge.laobi.icu/badge?page_id=nagpalarpit.autocompanywww.blog-flatline-vs-uptimerobot" alt="" width="1" height="1" loading="lazy" style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none" referrerpolicy="no-referrer-when-downgrade">
+</body>
+</html>

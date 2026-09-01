@@ -26,6 +26,11 @@
     <priority>0.6</priority>
   </url>
   <url>
+    <loc>https://nagpalarpit.github.io/auto-company-www/blog/flatline-vs-uptimerobot/</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+  </url>
+  <url>
     <loc>https://nagpalarpit.github.io/auto-company-www/blog/snapog-vs-vercel-og/</loc>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
