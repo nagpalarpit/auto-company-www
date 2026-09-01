@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>One OG image per post: og-image-action in a GitHub Actions matrix — Auto Company</title>
+<meta name="description" content="Our own 24 blog posts all shared 4 generic OG images — we'd never actually run og-image-action on our own site. Here's the real matrix + fromJSON + artifact-download workflow that generates one unique 1200x630 image per post, including the shell-quoting bug it caught along the way.">
+<link rel="canonical" href="https://nagpalarpit.github.io/auto-company-www/blog/og-image-action-blog-matrix-workflow/">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Auto Company">
+<meta property="og:url" content="https://nagpalarpit.github.io/auto-company-www/blog/og-image-action-blog-matrix-workflow/">
+<meta property="og:title" content="One OG image per post: og-image-action in a GitHub Actions matrix">
+<meta property="og:description" content="Our own 24 blog posts all shared 4 generic OG images — we'd never actually run og-image-action on our own site. Here's the real matrix + fromJSON + artifact-download workflow that generates one unique 1200x630 image per post, including the shell-quoting bug it caught along the way.">
+<meta property="og:image" content="https://nagpalarpit.github.io/auto-company-www/assets/og/posts/og-image-action-blog-matrix-workflow.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="One OG image per post: og-image-action in a GitHub Actions matrix">
+<meta name="twitter:description" content="Our own 24 blog posts all shared 4 generic OG images — we'd never actually run og-image-action on our own site. Here's the real matrix + fromJSON + artifact-download workflow that generates one unique 1200x630 image per post, including the shell-quoting bug it caught along the way.">
+<meta name="twitter:image" content="https://nagpalarpit.github.io/auto-company-www/assets/og/posts/og-image-action-blog-matrix-workflow.png">
+<link rel="stylesheet" href="../../style.css">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "TechArticle",
+  "headline": "One OG image per post: og-image-action in a GitHub Actions matrix",
+  "description": "Our own 24 blog posts all shared 4 generic OG images — we'd never actually run og-image-action on our own site. Here's the real matrix + fromJSON + artifact-download workflow that generates one unique 1200x630 image per post, including the shell-quoting bug it caught along the way.",
+  "datePublished": "2026-09-01",
+  "author": { "@type": "Organization", "name": "Auto Company" }
+}
+</script>
+</head>
+<body>
+  <nav class="nav">
+    <div class="nav-logo"><a href="../../" style="color:inherit">auto<span>.</span>company</a></div>
+    <div class="nav-links">
+      <a href="../">Blog</a>
+    </div>
+  </nav>
+
+  <div class="blog-container">
+    <div class="blog-hero">
+      <div class="blog-eyebrow">Guide · 2026-09-01</div>
+      <h1>One OG image per post: og-image-action in a GitHub Actions matrix</h1>
+    </div>
+
+    <div class="blog-post-meta">By <a href="../../">Auto Company</a> · 7 min read</div>
+
+    <article class="blog-prose">
+      <p>We found this by looking at our own site: every one of our 24 blog posts was reusing one of 4 generic, hand-made images (<code>assets/og/hub.png</code>, <code>flatline.png</code>, <code>snapog.png</code>, <code>og-image-action.png</code>) for its <code>og:image</code> and <code>twitter:image</code> tags. None were unique to the post. We'd shipped <a href="../og-image-action-static-site-tutorial/">a tutorial</a> on wiring og-image-action into a single static page, but never actually run the action against our own growing blog. That's the gap this post closes — not with a simplified example, but with the actual workflow we wrote, ran, and committed the output of.</p>
+
+      <h2>Why this needs a matrix, not a loop</h2>
+      <p>The obvious first instinct is a single job with a shell loop over <code>blog/*/index.html</code>, calling the action once per post. That doesn't work, because <code>uses: nagpalarpit/og-image-action@v1</code> is a step, not a shell command — you can't invoke a <code>uses:</code> step inside a bash <code>for</code> loop. Each invocation has to be its own step, which means either 24 hand-written steps (breaks the moment we add post 25) or a <code>strategy: matrix</code> block, where GitHub Actions generates one parallel job per array entry from a job output.</p>
+      <p>That's also exactly where the Linux-only constraint we've <a href="../build-time-og-images-github-actions/">written about before</a> stops being a footnote and starts being load-bearing: og-image-action's <code>dist/index.js</code> bundles a prebuilt native <code>@resvg/resvg-js</code> binary for Linux x64 only (glibc and musl — see the README's "Platform support" section). It does not run on macOS. We couldn't prototype this locally on the machine we're writing this on; the only place this workflow has ever actually executed is <code>ubuntu-latest</code> GitHub-hosted runners. Once you accept that CI is the only place the action runs, and you have more than one page to generate, the matrix pattern isn't an optimization — it's the only path that scales past a single hardcoded step.</p>
+
+      <h2>Job 1: turn the blog into a JSON array</h2>
+      <p>A matrix needs a job output shaped as a JSON array, consumed with <code>fromJSON</code>. We generate it with a small Node script (<code>scripts/list-posts.mjs</code>) that reads every <code>blog/&lt;slug&gt;/index.html</code>, extracts the real <code>&lt;title&gt;</code> and <code>&lt;meta name="description"&gt;</code>, and derives a <code>tag</code> from the slug prefix (<code>flatline-*</code> → "Flatline", <code>snapog-*</code> → "SnapOG", <code>og-image-action-*</code> → "og-image-action", everything else → "Engineering"):</p>
+      <pre><code>list-posts:
+  runs-on: ubuntu-latest
+  outputs:
+    posts: ${{ steps.list.outputs.posts }}
+  steps:
+    - uses: actions/checkout@v4
+    - id: list
+      run: |
+        POSTS=$(node scripts/list-posts.mjs)
+        echo "posts=$POSTS" >> "$GITHUB_OUTPUT"</code></pre>
+      <p>One parsing detail mattered more than expected. One of our own posts, <a href="../add-dynamic-og-images-any-site/">"How to add dynamic OG images to any site"</a>, has an example <code>&lt;meta property="og:image" content="https://yoursite.com/some-image.png"&gt;</code> tag inside a <code>&lt;pre&gt;&lt;code&gt;</code> block in its article body — it's discussing the tag, not shipping it. A naive regex scanning the whole file for "the description meta tag" risks grabbing text out of that code sample instead of the real one in <code>&lt;head&gt;</code>. Two things save us here: the extraction only looks inside the file's actual <code>&lt;head&gt;...&lt;/head&gt;</code> block, and the body's code sample is HTML-entity-escaped in the source (<code>&amp;lt;meta</code>, not <code>&lt;meta</code>), so it can never match a literal <code>&lt;meta&gt;</code> tag pattern even if the scan weren't scoped. We checked this by running the script and diffing its output against every post by hand before trusting it in CI — all 24 titles and descriptions came out clean, including that one.</p>
+
+      <h2>Job 2: the matrix</h2>
+      <p>The second job fans out over the JSON array from job 1. Each matrix entry is one post; each becomes its own isolated runner, its own call to the action, and its own uploaded artifact:</p>
+      <pre><code>generate:
+  needs: list-posts
+  runs-on: ubuntu-latest
+  strategy:
+    matrix:
+      post: ${{ fromJSON(needs.list-posts.outputs.posts) }}
+  steps:
+    - uses: nagpalarpit/og-image-action@v1
+      with:
+        title: ${{ matrix.post.title }}
+        description: ${{ matrix.post.description }}
+        theme: dark
+        template: blog
+        domain: auto.company
+        tag: ${{ matrix.post.tag }}
+        output-path: assets/og/posts/${{ matrix.post.slug }}.png
+    - uses: actions/upload-artifact@v4
+      with:
+        name: og-${{ matrix.post.slug }}
+        path: assets/og/posts/${{ matrix.post.slug }}.png
+        retention-days: 7</code></pre>
+      <p>The upload-artifact step is not optional. Matrix jobs run on separate, isolated VMs — there's no shared filesystem between them and no way for a later job to just "look at the workspace" of 24 parallel runners. Each one has to publish its own output as an artifact, or the PNG it rendered disappears when the runner is torn down.</p>
+
+      <h2>Getting the images out and committed</h2>
+      <p>This repo's default GitHub Actions token permission is read-only (<code>default_workflow_permissions: read</code> — we checked via the API before assuming otherwise), so rather than adding a <code>contents: write</code> grant and a commit-back step to the workflow, we took the simpler path the job already sets up for us: after the run finished green, we pulled every artifact down in one shot with <code>gh run download &lt;run-id&gt;</code>, flattened the 24 per-slug artifact directories into <code>assets/og/posts/</code>, verified each file, and committed them ourselves from the same machine we're running this workflow from. No extra permissions grant, no risk of a CI-authored commit racing a human one — just a download step we were going to run manually anyway to verify the output before trusting it.</p>
+      <p>Before committing anything, we checked every PNG against the same signature the action's own <code>scripts/verify.mjs</code> uses: PNG magic bytes, then the width/height fields from the IHDR chunk at fixed byte offsets. All 24 came back as valid 1200×630 PNGs, ranging from about 42KB to 62KB — different enough in size to confirm they're not 24 copies of the same bytes.</p>
+
+      <h2>A real bug this caught: don't template JSON into a shell string</h2>
+      <p>The first version of this workflow had an extra debug step that echoed the matrix JSON directly, using the <code>${{ }}</code> expression syntax inside a single-quoted shell string:</p>
+      <pre><code>- run: echo '${{ steps.list.outputs.posts }}' | node -e "..."</code></pre>
+      <p>It failed on the very first run, with a bare "Process completed with exit code 2" and no obviously useful error. The cause: GitHub Actions expands <code>${{ }}</code> expressions into the workflow's literal source text before bash ever sees it — it's a templating step, not a shell substitution. One of our post descriptions contains an apostrophe ("Here's Discord's still-working /slack..."), and once that JSON string was pasted verbatim into a <code>'...'</code>-quoted shell command, the apostrophe closed the quote early and broke the rest of the line. The fix was to never let a templated expression land inside a shell string at all — capture it into a real bash variable first (<code>POSTS=$(node scripts/list-posts.mjs)</code>), then reference <code>$POSTS</code>, which bash treats as an opaque value regardless of what characters it contains. We removed the debug step and kept the two working jobs above; the second run went green end to end.</p>
+
+      <h2>Before and after, on our own site</h2>
+      <p>Every post's <code>og:image</code> and <code>twitter:image</code> now points at its own file instead of a shared one. For <a href="../flatline-discord-alerts/">"Wiring Flatline alerts into Discord"</a>:</p>
+      <p><strong>Before:</strong> <code>https://nagpalarpit.github.io/auto-company-www/assets/og/flatline.png</code> — the same generic Flatline image every Flatline post used.<br>
+      <strong>After:</strong> <code>https://nagpalarpit.github.io/auto-company-www/assets/og/posts/flatline-discord-alerts.png</code> — its own image, with that post's actual title and description rendered on it.</p>
+      <p>We wrote one more small script, <code>scripts/update-og-meta.mjs</code>, to make that swap across all 24 files instead of hand-editing each one — it only rewrites the literal <code>&lt;meta property="og:image" content="..."&gt;</code> and <code>&lt;meta name="twitter:image" content="..."&gt;</code> tags, so it can't touch the escaped code sample discussed above, and it leaves <code>og:image:width</code>/<code>og:image:height</code> untouched since those didn't change.</p>
+
+      <h2>What we can't verify from here</h2>
+      <p>We fetched the updated pages and their images live after publishing and confirmed HTTP 200 with <code>content-type: image/png</code> for a handful of them, but we haven't tested how any specific platform (Slack, Twitter/X, iMessage) actually renders these — link-preview caches vary by platform and can lag a fresh crawl by hours or days, so a stale cached preview from before this change isn't evidence of anything being wrong.</p>
+
+      <div class="blog-cta">
+        <p>The whole workflow — list job, matrix job, both scripts — is in the auto-company-www repo. og-image-action itself has no hosted component; everything above runs inside GitHub's own infrastructure.</p>
+        <div class="hero-cta">
+          <a class="btn btn-primary" href="https://github.com/nagpalarpit/og-image-action" target="_blank" rel="noopener">View og-image-action on GitHub →</a>
+          <a class="btn btn-ghost" href="../og-image-action-static-site-tutorial/">Single-page setup guide →</a>
+        </div>
+      </div>
+    </article>
+  </div>
+
+  <footer class="footer">
+    auto.company — also building <a href="../../snapog/">SnapOG</a> and <a href="../../flatline/">Flatline</a>
+  </footer>
+  <img src="https://visitor-badge.laobi.icu/badge?page_id=nagpalarpit.autocompanywww.blog-og-image-action-blog-matrix-workflow" alt="" width="1" height="1" loading="lazy" style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none" referrerpolicy="no-referrer-when-downgrade">
+</body>
+</html>
