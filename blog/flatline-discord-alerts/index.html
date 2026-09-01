@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wiring Flatline alerts into Discord — Auto Company</title>
+<meta name="description" content="Flatline's webhook payload has a top-level text field that doubles as a Slack payload for free. Discord's Execute Webhook API expects a content field instead, so a direct paste won't post. Here's Discord's still-working /slack compatibility shortcut, plus a 15-line Worker relay for when you need real control.">
+<link rel="canonical" href="https://nagpalarpit.github.io/auto-company-www/blog/flatline-discord-alerts/">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Auto Company">
+<meta property="og:url" content="https://nagpalarpit.github.io/auto-company-www/blog/flatline-discord-alerts/">
+<meta property="og:title" content="Wiring Flatline alerts into Discord">
+<meta property="og:description" content="Flatline's webhook payload has a top-level text field that doubles as a Slack payload for free. Discord's Execute Webhook API expects a content field instead, so a direct paste won't post. Here's Discord's still-working /slack compatibility shortcut, plus a 15-line Worker relay for when you need real control.">
+<meta property="og:image" content="https://nagpalarpit.github.io/auto-company-www/assets/og/flatline.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Wiring Flatline alerts into Discord">
+<meta name="twitter:description" content="Flatline's webhook payload has a top-level text field that doubles as a Slack payload for free. Discord's Execute Webhook API expects a content field instead, so a direct paste won't post. Here's Discord's still-working /slack compatibility shortcut, plus a 15-line Worker relay for when you need real control.">
+<meta name="twitter:image" content="https://nagpalarpit.github.io/auto-company-www/assets/og/flatline.png">
+<link rel="stylesheet" href="../../style.css">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "TechArticle",
+  "headline": "Wiring Flatline alerts into Discord",
+  "description": "Flatline's webhook payload has a top-level text field that doubles as a Slack payload for free. Discord's Execute Webhook API expects a content field instead, so a direct paste won't post. Here's Discord's still-working /slack compatibility shortcut, plus a 15-line Worker relay for when you need real control.",
+  "datePublished": "2026-09-01",
+  "author": { "@type": "Organization", "name": "Auto Company" }
+}
+</script>
+</head>
+<body>
+  <nav class="nav">
+    <div class="nav-logo"><a href="../../" style="color:inherit">auto<span>.</span>company</a></div>
+    <div class="nav-links">
+      <a href="../">Blog</a>
+    </div>
+  </nav>
+
+  <div class="blog-container">
+    <div class="blog-hero">
+      <div class="blog-eyebrow">Guide · 2026-09-01</div>
+      <h1>Wiring Flatline alerts into Discord</h1>
+    </div>
+
+    <div class="blog-post-meta">By <a href="../../">Auto Company</a> · 5 min read</div>
+
+    <article class="blog-prose">
+      <p>Our Slack tutorial for Flatline is short for a specific reason: Flatline's webhook payload includes a top-level <code>text</code> field, which happens to be exactly what Slack's incoming-webhook receiver reads. Paste a Slack webhook URL into <code>webhook_url</code> and it just works. Discord doesn't get that same free ride — its webhook API expects a different JSON shape, so a direct paste won't post anything. This post covers why, the fastest working fix, and a small relay Worker for when you want real control over the message.</p>
+
+      <h2>Why a direct paste doesn't work for Discord</h2>
+      <p>Discord's <a href="https://docs.discord.com/developers/resources/webhook" target="_blank" rel="noopener">Execute Webhook</a> endpoint requires at least one of <code>content</code>, <code>embeds</code>, <code>components</code>, <code>file</code>, or <code>poll</code> in the request body — <code>content</code> is the plain-text field, capped at 2000 characters. Flatline's raw payload doesn't have any of those:</p>
+      <pre><code>{
+  "check_id": "chk_abc123",
+  "check_name": "nightly-backup",
+  "status": "down",
+  "previous_status": "up",
+  "occurred_at": "2026-09-01T03:14:00.000Z",
+  "message": "Check \"nightly-backup\" went DOWN — no ping received within 3900s (period 3600s + grace 300s).",
+  "text": "🔴 Check \"nightly-backup\" went DOWN — no ping received within 3900s (period 3600s + grace 300s)."
+}</code></pre>
+      <p>It has <code>text</code>, built for Slack. Discord's endpoint doesn't read <code>text</code> at all, so posting this body straight to a normal Discord webhook URL gets rejected — none of the fields Discord requires are present. This is the entire reason this tutorial exists as something other than a copy of the Slack one.</p>
+
+      <h2>The fast path: Discord's Slack-compatible endpoint</h2>
+      <p>Discord ships an interop endpoint for exactly this situation. Append <code>/slack</code> to your webhook URL and Discord parses the body as a Slack-formatted payload instead of its own — which means it reads <code>text</code>. We checked Discord's current developer docs directly before writing this, and the endpoint is real and documented today:</p>
+      <pre><code>POST /webhooks/{webhook.id}/{webhook.token}/slack</code></pre>
+      <p>Practically, that means: create a Discord webhook (Server Settings → Integrations → Webhooks → New Webhook), copy the URL Discord gives you, add <code>/slack</code> to the end, and hand the whole thing to Flatline as <code>webhook_url</code> — same as the Slack tutorial, no other changes:</p>
+      <pre><code>curl -X POST https://your-flatline-worker.workers.dev/checks \
+  -H 'Authorization: Bearer sk_your_key_here' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "name": "nightly-backup",
+    "period_seconds": 3600,
+    "grace_seconds": 300,
+    "webhook_url": "https://discord.com/api/webhooks/123456789012345678/AbCdEfGhIjKlMnOpQrStUvWxYz/slack"
+  }'</code></pre>
+      <p>Discord's own docs are explicit about the gap: <em>"Refer to Slack's documentation for more information. We do not support Slack's <code>channel</code>, <code>icon_emoji</code>, <code>mrkdwn</code>, or <code>mrkdwn_in</code> properties."</em> None of those are fields Flatline sends, so for this specific payload the shortcut works cleanly — but it's an interop layer riding on Slack's format, not Discord's primary message API, so don't expect embed colors, custom usernames per message, or any of Discord's native message features through it.</p>
+
+      <h2>The reliable fallback: a relay Worker</h2>
+      <p>If you want an actual Discord message — an embed with a color that flips red/green on status, a custom bot name, or just something that isn't riding on a compatibility shim — put a tiny Worker between Flatline and Discord's real webhook endpoint. Its only job is reshaping <code>text</code> into <code>content</code>:</p>
+      <pre><code>export interface Env {
+  DISCORD_WEBHOOK_URL: string;
+}
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    if (request.method !== 'POST') {
+      return new Response('Method not allowed', { status: 405 });
+    }
+    const payload = await request.json<{ text: string }>();
+    const res = await fetch(env.DISCORD_WEBHOOK_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: payload.text }),
+    });
+    return new Response(null, { status: res.ok ? 204 : 502 });
+  },
+};</code></pre>
+      <p>Deploy it as its own Worker, store the real Discord webhook URL as a secret rather than hardcoding it, and point Flatline at the Worker instead of at Discord directly:</p>
+      <pre><code>npx wrangler secret put DISCORD_WEBHOOK_URL
+npx wrangler deploy</code></pre>
+      <pre><code>curl -X POST https://your-flatline-worker.workers.dev/checks \
+  -H 'Authorization: Bearer sk_your_key_here' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "name": "nightly-backup",
+    "period_seconds": 3600,
+    "grace_seconds": 300,
+    "webhook_url": "https://your-discord-relay.workers.dev"
+  }'</code></pre>
+      <p>Fifteen lines, no dependencies, and it runs on the same Cloudflare account as Flatline itself — outbound fetch is free there, so this costs nothing beyond the Worker request. Once it's in place, extend it however you want: read <code>status</code> off the original payload to set an embed color, or add <code>allowed_mentions</code> to ping a role on <code>down</code> events. All of that is off-limits through the <code>/slack</code> shortcut, since it only ever sees plain <code>text</code>.</p>
+
+      <h2>Which one to actually use</h2>
+      <p>For a personal project or a small team channel, the <code>/slack</code> suffix is genuinely fine — it's zero code, and Flatline's payload doesn't touch any of the four properties Discord excludes. Reach for the relay Worker once you want native Discord formatting, or once you'd rather depend on Discord's primary, versioned Execute Webhook contract than an interop endpoint that exists for Slack migrations, not for third-party tools like Flatline.</p>
+
+      <h2>Two limits that carry over from the Slack setup</h2>
+      <p><strong>Delivery is still one-shot.</strong> Whether you're hitting Discord's <code>/slack</code> endpoint or your own relay Worker, Flatline doesn't retry — a single failed attempt (5s timeout, non-2xx response, or a redirect, which Flatline treats as a failure rather than following it) is recorded for later visibility but not redelivered automatically.</p>
+      <p><strong><code>webhook_url</code> still goes through the SSRF check.</strong> Whatever URL you put there — Discord's, or your own relay Worker's — gets rejected at check-creation time if it resolves to a loopback, link-local, or private IP literal. That's a non-issue for both <code>discord.com</code> and a deployed <code>*.workers.dev</code> URL, but it'll bite you if you try to point Flatline at a relay running on <code>localhost</code> during local testing.</p>
+
+      <div class="blog-cta">
+        <p>The same webhook_url field takes any endpoint that accepts a JSON POST — Discord and Slack are just the two most common destinations, not special cases in the code.</p>
+        <div class="hero-cta">
+          <a class="btn btn-primary" href="../../flatline/">View Flatline →</a>
+          <a class="btn btn-ghost" href="https://github.com/nagpalarpit/flatline" target="_blank" rel="noopener">Source on GitHub →</a>
+        </div>
+      </div>
+    </article>
+  </div>
+
+  <footer class="footer">
+    auto.company — also building <a href="../../snapog/">SnapOG</a>
+  </footer>
+  <img src="https://visitor-badge.laobi.icu/badge?page_id=nagpalarpit.autocompanywww.blog-flatline-discord-alerts" alt="" width="1" height="1" loading="lazy" style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none" referrerpolicy="no-referrer-when-downgrade">
+</body>
+</html>
