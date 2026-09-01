@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flatline vs Cronitor: one job monitor vs a whole monitoring platform — Auto Company</title>
+<meta name="description" content="Cronitor is a broad monitoring platform — cron, uptime, heartbeats, status pages, RUM — priced per monitor. Flatline only does cron/heartbeat monitoring, free and self-hosted. Here's the real feature and pricing breakdown.">
+<link rel="canonical" href="https://nagpalarpit.github.io/auto-company-www/blog/flatline-vs-cronitor/">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Auto Company">
+<meta property="og:url" content="https://nagpalarpit.github.io/auto-company-www/blog/flatline-vs-cronitor/">
+<meta property="og:title" content="Flatline vs Cronitor: one job monitor vs a whole monitoring platform">
+<meta property="og:description" content="Cronitor is a broad monitoring platform priced per monitor. Flatline only does cron/heartbeat monitoring, free and self-hosted. Here's the real breakdown.">
+<meta property="og:image" content="https://nagpalarpit.github.io/auto-company-www/assets/og/hub.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Flatline vs Cronitor: one job monitor vs a whole monitoring platform">
+<meta name="twitter:description" content="Cronitor is a broad monitoring platform priced per monitor. Flatline only does cron/heartbeat monitoring, free and self-hosted.">
+<meta name="twitter:image" content="https://nagpalarpit.github.io/auto-company-www/assets/og/hub.png">
+<link rel="stylesheet" href="../../style.css">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "TechArticle",
+  "headline": "Flatline vs Cronitor: one job monitor vs a whole monitoring platform",
+  "description": "Cronitor is a broad monitoring platform priced per monitor. Flatline only does cron/heartbeat monitoring, free and self-hosted on your own Cloudflare account.",
+  "datePublished": "2026-09-01",
+  "author": { "@type": "Organization", "name": "Auto Company" }
+}
+</script>
+</head>
+<body>
+  <nav class="nav">
+    <div class="nav-logo"><a href="../../" style="color:inherit">auto<span>.</span>company</a></div>
+    <div class="nav-links">
+      <a href="../">Blog</a>
+    </div>
+  </nav>
+
+  <div class="blog-container">
+    <div class="blog-hero">
+      <div class="blog-eyebrow">Guide · 2026-09-01</div>
+      <h1>Flatline vs Cronitor: one job monitor vs a whole monitoring platform</h1>
+    </div>
+
+    <div class="blog-post-meta">By <a href="../../">Auto Company</a> · 6 min read</div>
+
+    <article class="blog-prose">
+      <p>Cronitor and <a href="../../flatline/">Flatline</a> both catch a cron job that silently stopped running — you ping a URL after every successful run, and if the ping doesn't show up inside a window you define, you get told. Past that one shared mechanic, they're not really the same category of product. Cronitor is a monitoring platform with five distinct product areas. Flatline is one open-source Cloudflare Worker that does exactly one of those things.</p>
+
+      <p>That difference is the whole comparison. Here's what each one actually does, what it actually costs, and which situations each one is genuinely the better pick for.</p>
+
+      <h2>Cronitor: a monitoring platform, of which cron is one part</h2>
+      <p>Cronitor's own site describes five separate product areas: <strong>Jobs</strong> (cron jobs, background workers, scheduled tasks), <strong>Checks</strong> (uptime/API monitoring from 12+ global locations, including SSL certificate checks), <strong>Heartbeats</strong> (the same dead-man's-switch pattern Flatline uses, for services without an HTTP endpoint to poll), <strong>Status Pages</strong>, and <strong>Analytics</strong> (real-user monitoring for traffic, errors, and performance). If your job monitoring need is actually "we want one dashboard for cron jobs, website uptime, SSL expiry, and a public status page," Cronitor covers all of it under one account. Flatline covers none of the uptime/RUM/status-page pieces — it never claimed to.</p>
+
+      <h2>Flatline: heartbeat monitoring, self-hosted, and nothing else</h2>
+      <p>Flatline is <a href="https://github.com/nagpalarpit/flatline" target="_blank" rel="noopener">open source</a> — a Hono app on Cloudflare Workers backed by D1, with a cron trigger that sweeps for overdue checks once a minute. You deploy it to your own Cloudflare account (there's a one-click button), register a check, and curl a ping URL at the end of your job. There's no uptime checking, no SSL monitoring, no status pages, no analytics — just: did the ping arrive on time, yes or no.</p>
+
+      <h2>Pricing: per-monitor billing vs your own Cloudflare bill</h2>
+      <p>Cronitor's free <strong>Hacker</strong> plan is real and permanent: 5 monitors, a 5-minute minimum check frequency, email and Slack alerts only, one status page with 50 subscribers. Past that, the <strong>Business</strong> plan is pay-as-you-go: $2/month per monitor plus $5/month per dashboard user, no minimums, after a 14-day trial. That gets you a 30-second check frequency, 6 months of data retention, all 11 alert integrations (including SMS and on-call routing to PagerDuty/Opsgenie), and a status page with 500 subscribers. Enterprise is custom, starting around $6,000/year. Watch the per-monitor line item — if you're monitoring 30 cron jobs on Business, that's $60/month before you've added a single teammate.</p>
+      <p>Flatline has no billing at all. It ships with a three-tier limit schema baked into the code — free (25 checks, 5-minute minimum ping interval), pro (100 checks, 1-minute floor), business (1,000 checks, 1-minute floor) — but self-serve registration only ever grants the free tier; there's no Stripe integration wired up to unlock pro or business, they just exist in the schema if you want to grant them to yourself directly. In practice, what you pay is whatever your own Cloudflare account costs to run a low-traffic Worker plus D1 — usually $0 on Cloudflare's free tier, and there's no per-monitor meter running regardless of how many checks you add, up to your tier's cap.</p>
+
+      <h2>Alerting: 11 integrations and SMS vs one webhook, one shot</h2>
+      <p>This is Cronitor's strongest built-in advantage. On Business you get SMS, phone call, and on-call routing to PagerDuty/Opsgenie/Splunk On-Call out of the box, plus Slack, Discord, Teams, Google Chat, Telegram, email, and webhooks — 11 integrations total, already wired to a telephony/paging relationship Cronitor maintains for you. If you want a phone call at 3am when something breaks, that's a checkbox, not a project.</p>
+      <p>Flatline is webhook-only, by deliberate design — there's no email or SMS relay in the codebase, on purpose, because that's a third-party credential dependency the project didn't want in its own request path. When a check flips, it fires exactly one HTTP POST to your configured URL with a 5-second timeout; the payload includes a top-level <code>text</code> field so it drops straight into a Slack incoming webhook with zero transformation. It's also genuinely one-shot: there's no retry queue. If your endpoint is down or times out, the attempt is logged (status code, success/failure, error) for you to check later, but nothing retries it automatically. If you want SMS or a phone call, you're pointing the webhook at something that already provides that — Flatline doesn't have it natively, and Cronitor does.</p>
+
+      <h2>The one hardening detail worth knowing on the Flatline side</h2>
+      <p>Because Flatline's alerting path is "we fetch a URL you gave us," the webhook_url field is validated against loopback, private (RFC1918), and link-local IPv4/IPv6 ranges — including the <code>169.254.169.254</code> cloud metadata address — at check-creation time, and outbound delivery uses <code>redirect: 'manual'</code> so a webhook URL can't pass validation as a public host and then 30x to an internal target at delivery time. The one gap the code explicitly flags as out of scope: DNS rebinding, where an ordinary-looking hostname resolves to a private address only at request time, after already passing the check as a normal public hostname. That's a real, documented residual risk, not a made-up caveat.</p>
+
+      <h2>Where Cronitor is genuinely the better choice</h2>
+      <ul>
+        <li>You want cron monitoring, uptime/SSL checks, a public status page, and RUM analytics under one account instead of stitching together separate tools.</li>
+        <li>You want SMS or phone-call alerting without building your own relay — Cronitor already has that relationship with a telephony provider.</li>
+        <li>You want zero infrastructure to operate — no account, no Worker, no D1 database to keep an eye on.</li>
+        <li>You're fine with a third party holding your job schedules, check-in cadence, and alert destinations, in exchange for that convenience.</li>
+      </ul>
+
+      <h2>Where Flatline is genuinely the better choice</h2>
+      <ul>
+        <li>Cron/heartbeat monitoring is all you need — you don't want to pay for uptime checks, RUM, or status pages you won't use.</li>
+        <li>You'd rather your check definitions and webhook URLs never leave your own Cloudflare account than pay a per-monitor fee to a third party.</li>
+        <li>You already have a webhook-based alert channel (Slack, Discord, PagerDuty's webhook intake) — Flatline's payload drops straight in.</li>
+        <li>You don't mind that "self-hosted" means you own the Worker: you clicked one deploy button, and updates/security patches are on you to pull.</li>
+      </ul>
+
+      <h2>Can you use both?</h2>
+      <p>Yes, and it's a reasonable split. Point Cronitor at the things that benefit from its breadth — public-facing uptime, SSL expiry, a status page customers actually look at, jobs where a phone call matters — and self-host Flatline for internal cron jobs where a Slack ping is already enough and you'd rather not add a per-monitor line item for something that's otherwise free on your own infrastructure.</p>
+
+      <div class="blog-cta">
+        <p>Self-host Flatline in a few minutes, or read the 5-minute setup guide first.</p>
+        <div class="hero-cta">
+          <a class="btn btn-primary" href="../../flatline/">Flatline →</a>
+          <a class="btn btn-primary" href="../cron-jobs-fail-silently/">5-minute setup guide →</a>
+        </div>
+      </div>
+    </article>
+  </div>
+
+  <footer class="footer">
+    auto.company — also building <a href="../../snapog/">SnapOG</a>
+  </footer>
+  <img src="https://visitor-badge.laobi.icu/badge?page_id=nagpalarpit.autocompanywww.blog-flatline-vs-cronitor" alt="" width="1" height="1" loading="lazy" style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none" referrerpolicy="no-referrer-when-downgrade">
+</body>
+</html>
