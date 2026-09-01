@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flatline vs Healthchecks.io: who should run your dead man's switch? — Auto Company</title>
+<meta name="description" content="Both catch a cron job that silently stopped running. The difference is who operates the thing that's watching — a hosted SaaS or your own Cloudflare account. Here's how to pick, with real pricing on both sides.">
+<link rel="canonical" href="https://nagpalarpit.github.io/auto-company-www/blog/flatline-vs-healthchecks-io/">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Auto Company">
+<meta property="og:url" content="https://nagpalarpit.github.io/auto-company-www/blog/flatline-vs-healthchecks-io/">
+<meta property="og:title" content="Flatline vs Healthchecks.io: who should run your dead man's switch?">
+<meta property="og:description" content="Both catch a cron job that silently stopped running. The difference is who operates the thing that's watching. Here's how to pick, with real pricing on both sides.">
+<meta property="og:image" content="https://nagpalarpit.github.io/auto-company-www/assets/og/hub.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Flatline vs Healthchecks.io: who should run your dead man's switch?">
+<meta name="twitter:description" content="Both catch a cron job that silently stopped running. The difference is who operates the thing that's watching. Here's how to pick.">
+<meta name="twitter:image" content="https://nagpalarpit.github.io/auto-company-www/assets/og/hub.png">
+<link rel="stylesheet" href="../../style.css">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "TechArticle",
+  "headline": "Flatline vs Healthchecks.io: who should run your dead man's switch?",
+  "description": "Both catch a cron job that silently stopped running. The difference is who operates the thing that's watching — a hosted SaaS or your own Cloudflare account.",
+  "datePublished": "2026-09-01",
+  "author": { "@type": "Organization", "name": "Auto Company" }
+}
+</script>
+</head>
+<body>
+  <nav class="nav">
+    <div class="nav-logo"><a href="../../" style="color:inherit">auto<span>.</span>company</a></div>
+    <div class="nav-links">
+      <a href="../">Blog</a>
+    </div>
+  </nav>
+
+  <div class="blog-container">
+    <div class="blog-hero">
+      <div class="blog-eyebrow">Guide · 2026-09-01</div>
+      <h1>Flatline vs Healthchecks.io: who should run your dead man's switch?</h1>
+    </div>
+
+    <div class="blog-post-meta">By <a href="../../">Auto Company</a> · 5 min read</div>
+
+    <article class="blog-prose">
+      <p>Healthchecks.io and <a href="../../flatline/">Flatline</a> solve the identical problem: a cron job or scheduled task fails silently — no error, no crash, no alert, it just stops running — and nobody notices until someone asks why last night's backup is missing. Both work the same way: your job pings a URL after every successful run, and if the ping doesn't show up inside a window you define, you get told. That's a dead man's switch, and the mechanism is the same on both sides.</p>
+
+      <p>What's different is who runs the thing doing the watching, and that one decision drives everything else — pricing, what alerting you get for free, and what your job's schedule and webhook URLs end up sitting in.</p>
+
+      <h2>The question: do you want to operate this, or pay someone to?</h2>
+      <p>Healthchecks.io is a hosted SaaS. You sign up, create a check, and you're pinging within a couple of minutes — nothing to deploy, nothing to maintain, and it's been running in production for other people for years. Flatline is <a href="https://github.com/nagpalarpit/flatline" target="_blank" rel="noopener">open source</a> and self-hosted: you deploy it to your own Cloudflare account (there's a one-click button for it), and from that point on it's entirely yours — your D1 database, your checks, no third party ever sees your job's cadence or your webhook endpoints.</p>
+
+      <h2>Healthchecks.io: hosted, batteries-included alerting</h2>
+      <p>Healthchecks.io's free Hobbyist tier is generous and has been stable for a long time: 20 checks, 100 log entries per check, no credit card, forever. Paid tiers scale from there — Business at $20/mo gets you 100 checks plus SMS and phone-call credits on top of the 25+ built-in notification channels (email, Slack, Discord, PagerDuty, webhooks, and more); Business Plus at $80/mo goes to 1,000 checks with more SMS/call credits.</p>
+      <p>The thing you're actually paying for past the free tier isn't really "more checks" — it's not having to wire up your own alerting. If you want a phone call at 3am when a job goes down, Healthchecks.io already has that relationship with a telephony provider so you don't have to build one.</p>
+
+      <h2>Flatline: self-hosted, webhook-only, no per-check bill</h2>
+      <p>Flatline ships with a free/pro/business tier model already built into the code (25 / 100 / 1,000 checks, with a minimum ping interval per tier), but since you're self-hosting, self-serve registration only ever grants the free tier — there's no billing to unlock the higher ones, they're just there in the schema if you want to grant yourself `pro` or `business` directly. In practice, that means whatever Cloudflare's free tier covers is what your monitoring costs: usually $0.</p>
+      <p>The trade-off is that Flatline's alerting is webhook-only — there's no built-in email or SMS relay, on purpose, because that's also a third-party integration surface Flatline doesn't want in its own request path. You point the webhook at whatever already accepts a POST: a Slack incoming webhook, a Discord webhook, PagerDuty's webhook intake, or your own endpoint. If you already have an alerting channel wired up for other things, this is one line to add, not a new provider relationship. If you don't, it's a bit more setup than Healthchecks.io's "just check the SMS box."</p>
+
+      <h2>The real trade-off isn't price, it's custody</h2>
+      <p>Both are cheap at small scale — Healthchecks.io's free tier and Flatline's self-hosted free tier both cover a solo developer's cron jobs without a card on file. The actual decision is about where your data and your ops burden live:</p>
+      <ul>
+        <li><strong>Pick Healthchecks.io</strong> if you want zero infrastructure to run, you want SMS or phone-call alerts without building a relay yourself, and you're fine with a third party holding your job schedules and alert destinations.</li>
+        <li><strong>Pick Flatline</strong> if you'd rather your check definitions and webhook URLs never leave your own Cloudflare account, you already have a webhook-based alert channel (Slack/Discord/PagerDuty), and you don't mind that "self-hosted" means you clicked one deploy button and now it's your Worker.</li>
+      </ul>
+
+      <h2>Can you use both?</h2>
+      <p>Yes — plenty of setups do. Use Healthchecks.io for the jobs where you genuinely want a phone call if something breaks, and self-host Flatline for internal or lower-stakes jobs where you'd rather not put another vendor between you and your own infrastructure, or where a Slack ping is already enough. They're not fighting for the same check; they're just answering "who operates this" differently.</p>
+
+      <div class="blog-cta">
+        <p>Self-host Flatline in a few minutes, or read the 5-minute setup guide first.</p>
+        <div class="hero-cta">
+          <a class="btn btn-primary" href="../../flatline/">Flatline →</a>
+          <a class="btn btn-primary" href="../cron-jobs-fail-silently/">5-minute setup guide →</a>
+        </div>
+      </div>
+    </article>
+  </div>
+
+  <footer class="footer">
+    auto.company — also building <a href="../../snapog/">SnapOG</a>
+  </footer>
+  <img src="https://visitor-badge.laobi.icu/badge?page_id=nagpalarpit.autocompanywww.blog-flatline-vs-healthchecks-io" alt="" width="1" height="1" loading="lazy" style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none" referrerpolicy="no-referrer-when-downgrade">
+</body>
+</html>
