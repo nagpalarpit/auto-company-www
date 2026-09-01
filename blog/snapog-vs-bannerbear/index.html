@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SnapOG vs Bannerbear: do you need a $49/mo design API, or a free Worker?</title>
+<meta name="description" content="Bannerbear is a general image/video/PDF automation API starting at $49/month. SnapOG only makes Open Graph images, and runs free on your own Cloudflare account. Here's how to tell which one your project actually needs.">
+<link rel="canonical" href="https://nagpalarpit.github.io/auto-company-www/blog/snapog-vs-bannerbear/">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Auto Company">
+<meta property="og:url" content="https://nagpalarpit.github.io/auto-company-www/blog/snapog-vs-bannerbear/">
+<meta property="og:title" content="SnapOG vs Bannerbear: do you need a $49/mo design API, or a free Worker?">
+<meta property="og:description" content="Bannerbear is a general image/video/PDF automation API starting at $49/month. SnapOG only makes Open Graph images, and runs free on your own Cloudflare account.">
+<meta property="og:image" content="https://nagpalarpit.github.io/auto-company-www/assets/og/hub.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="SnapOG vs Bannerbear: do you need a $49/mo design API, or a free Worker?">
+<meta name="twitter:description" content="Bannerbear is a general image/video/PDF automation API starting at $49/month. SnapOG only makes Open Graph images, and runs free on your own Cloudflare account.">
+<meta name="twitter:image" content="https://nagpalarpit.github.io/auto-company-www/assets/og/hub.png">
+<link rel="stylesheet" href="../../style.css">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "TechArticle",
+  "headline": "SnapOG vs Bannerbear: do you need a $49/mo design API, or a free Worker?",
+  "description": "Bannerbear is a general image/video/PDF automation API starting at $49/month. SnapOG only makes Open Graph images, and runs free on your own Cloudflare account.",
+  "datePublished": "2026-09-01",
+  "author": { "@type": "Organization", "name": "Auto Company" }
+}
+</script>
+</head>
+<body>
+  <nav class="nav">
+    <div class="nav-logo"><a href="../../" style="color:inherit">auto<span>.</span>company</a></div>
+    <div class="nav-links">
+      <a href="../">Blog</a>
+    </div>
+  </nav>
+
+  <div class="blog-container">
+    <div class="blog-hero">
+      <div class="blog-eyebrow">Guide · 2026-09-01</div>
+      <h1>SnapOG vs Bannerbear: do you need a $49/mo design API, or a free Worker?</h1>
+    </div>
+
+    <div class="blog-post-meta">By <a href="../../">Auto Company</a> · 4 min read</div>
+
+    <article class="blog-prose">
+      <p>People land on <a href="../../snapog/">SnapOG</a>'s docs after searching for "Bannerbear alternative" often enough that it's worth answering directly: they're not really the same product. Bannerbear is a general-purpose image, video, and PDF automation API — banners, social posts, certificates, video thumbnails, the works, driven by templates and integrations like Zapier and Airtable. SnapOG does exactly one thing: it takes a page title and turns it into an Open Graph share image. If what you need is the second thing, paying for the first thing is real overkill. If you need the first thing, SnapOG can't help you.</p>
+
+      <h2>Bannerbear: hosted, template-driven, broad</h2>
+      <p>Bannerbear's pricing is credit-based across three tiers: Automate at $49/month (1,000 API credits, 10GB bandwidth, REST API plus Zapier/Make/Airtable/Forms integrations), Scale at $149/month (10,000 credits, 50GB, signed URLs, team roles), and Enterprise at $299/month (20,000 credits, 100GB, bring-your-own-S3-storage). One image costs one credit; video and PDF generation cost more. There's a free trial with 30 credits and no card required, but the real product starts at $49/month once you're past testing.</p>
+      <p>What you're paying for is breadth and no-code integration surface — design templates you edit visually, triggers from Zapier/Airtable/Make without writing a line of backend code, and support for media types (video, PDF, certificates) that have nothing to do with a website's `og:image` tag. If your team is generating certificates, social carousels, and product video thumbnails from the same tool, that breadth is the point.</p>
+
+      <h2>SnapOG: self-hosted, single-purpose, free on Cloudflare's free tier</h2>
+      <p>SnapOG does one job: `GET /og?title=...&key=...` returns a 1200×630 PNG, cached on R2 so a repeat request is a cache hit in under 100ms. It's <a href="https://github.com/nagpalarpit/snapog" target="_blank" rel="noopener">open source</a> (MIT) and self-hosted — a one-click button deploys it to your own Cloudflare account, provisioning its own D1 database and R2 bucket. From there it's yours: no per-image bill from us, because there's no "us" in the request path. Your cost is whatever Cloudflare's free tier covers, which for OG-image traffic on a blog or docs site is usually $0.</p>
+      <p>The code ships with a free/pro/business tier model already wired up (100 / 10,000 / 100,000 images per month) with Stripe checkout included but inert — self-serve registration always issues a free-tier key, and upgrading is a real Stripe flow only if you configure your own Stripe keys. If you're self-hosting just for your own site, none of that billing machinery has to be turned on at all; you can raise your own limits by editing one file.</p>
+
+      <h2>The real trade-off: template breadth vs. request-path custody</h2>
+      <ul>
+        <li><strong>Pick Bannerbear</strong> if you need more than OG images — video, PDFs, certificates, or social graphics — and you want a visual template editor plus no-code triggers (Zapier, Airtable, Make) instead of writing integration code. You're paying $49+/month for that breadth and for someone else operating the render pipeline.</li>
+        <li><strong>Pick SnapOG</strong> if all you actually need is "title in, shareable image out" for a blog, docs site, or app, and you'd rather that run on infrastructure you already control for free than pay a per-credit SaaS bill for a single narrow use case.</li>
+      </ul>
+      <p>They're not really competing for the same buyer. Bannerbear is a design-automation platform that happens to cover OG images as one of many template types. SnapOG is a narrow tool that happens to be free because it doesn't try to be anything else.</p>
+
+      <h2>Can you use both?</h2>
+      <p>Sure, though it's less common than the Flatline/Healthchecks.io split — most teams that need Bannerbear's broader template system just use it for OG images too, since the marginal cost of one more template is low once you're already paying for the platform. Where SnapOG tends to win is the team that doesn't have a Bannerbear subscription yet and doesn't want to start one just to solve a single meta tag.</p>
+
+      <div class="blog-cta">
+        <p>Deploy SnapOG to your own Cloudflare account, free, in a few minutes.</p>
+        <div class="hero-cta">
+          <a class="btn btn-primary" href="../../snapog/">SnapOG →</a>
+          <a class="btn btn-primary" href="https://github.com/nagpalarpit/snapog" target="_blank" rel="noopener">View on GitHub →</a>
+        </div>
+      </div>
+    </article>
+  </div>
+
+  <footer class="footer">
+    auto.company — also building <a href="../../flatline/">Flatline</a>
+  </footer>
+  <img src="https://visitor-badge.laobi.icu/badge?page_id=nagpalarpit.autocompanywww.blog-snapog-vs-bannerbear" alt="" width="1" height="1" loading="lazy" style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none" referrerpolicy="no-referrer-when-downgrade">
+</body>
+</html>

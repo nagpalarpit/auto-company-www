@@ -26,6 +26,11 @@
     <priority>0.6</priority>
   </url>
   <url>
+    <loc>https://nagpalarpit.github.io/auto-company-www/blog/snapog-vs-bannerbear/</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+  </url>
+  <url>
     <loc>https://nagpalarpit.github.io/auto-company-www/blog/flatline-vs-healthchecks-io/</loc>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
